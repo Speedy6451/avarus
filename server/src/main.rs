@@ -78,8 +78,6 @@ type SharedControl = Arc<RwLock<ControlState>>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    println!("{}", names::Name::from_num(args().nth(1).unwrap().parse().unwrap()).to_str());
-
     let state = match fs::File::open("state.json") {
         Ok(file) => {
             serde_json::from_reader(file)?
@@ -97,6 +95,7 @@ async fn main() -> Result<(), Error> {
     let serv = Router::new()
         .route("/turtle/new", post(create_turtle))
         .route("/turtle/update/:id", post(command))
+        .route("/turtle/client.lua", get(client))
     .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:48228").await.unwrap();
@@ -114,7 +113,9 @@ async fn create_turtle(
     let id = (turtles.len() + 1) as u32;
     turtles.push(Turtle::new(id, req.position, req.facing, req.fuel));
 
-    Json(TurtleResponse {name: Name::from_num(id).to_str(), command: TurtleCommand::Wait})
+    println!("turt {id}");
+
+    Json(TurtleResponse {name: Name::from_num(id).to_str(), id, command: TurtleCommand::Wait})
 }
 
 async fn command(
@@ -126,7 +127,7 @@ async fn command(
     println!("{id}");
 
 
-    Json(TurtleCommand::Wait)
+    Json(TurtleCommand::Update)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -142,6 +143,8 @@ enum TurtleCommand {
     DigUp,
     DigDown,
     TakeInventory,
+    Update,
+    Poweroff,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -161,5 +164,10 @@ struct TurtleRegister {
 #[derive(Serialize, Deserialize)]
 struct TurtleResponse {
     name: String,
+    id: u32,
     command: TurtleCommand,
+}
+
+async fn client() -> &'static str {
+    include_str!("../../client/client.lua")
 }
