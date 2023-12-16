@@ -12,6 +12,8 @@ bit-struct = "0.3.2"
 feistel_rs = "0.1.0"
 rstar = "0.11.0"
 rustmatica = "0.1.1"
+serde = "1.0.193"
+serde_json = "1.0.108"
 tokio = { version = "1.0", features = ["full"] }
 tower = { version = "0.4", features = ["util", "timeout", "load-shed", "limit"] }
 tower-http = { version = "0.5.0", features = [
