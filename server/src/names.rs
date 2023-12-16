@@ -1,5 +1,6 @@
 use anyhow::Context;
 use bit_struct::*;
+use feistel_rs::{feistel_encrypt, feistel_decrypt};
 
 bit_struct! {
     pub struct Name(u32) {
@@ -10,6 +11,10 @@ bit_struct! {
     }
 }
 
+// used as a aesthetic hash, not crypto
+const FEISTEL_KEY: [u8; 2] = [242, 199];
+const FEISTEL_ROUNDS: u32 = 42;
+
 const FIRST_NAMES: &str = include_str!("../names.txt");
 const LAST_NAMES: &str = include_str!("../surnames.txt");
 const ORDER: &str = include_str!("../order.txt");
@@ -18,7 +23,9 @@ const PRONOUNS: &str = include_str!("../pronouns.txt");
 impl Name {
     pub fn from_str(name: &str) -> anyhow::Result<Self> {
         let parts: Vec<&str> = name.splitn(4, ' ').collect();
-        let (first, last, order, pronouns) = (parts[0], parts[1], parts[2], parts[3]);
+        let (first, last, order, mut pronouns) = (parts[0], parts[1], parts[2], parts[3]);
+        pronouns = &pronouns[1..pronouns.len()-1];
+
 
         let first = FIRST_NAMES.lines().position(|x| *x == *first).map(|n| u13::new(n as u16)).context("unknown first name")?;
         let last = LAST_NAMES.lines().position(|x| *x == *last).map(|n| u14::new(n as u16)).context("unknown last name")?;
@@ -36,14 +43,22 @@ impl Name {
     }
 
     pub fn from_num(name: u32) -> Self {
-        // This is ok because every possible value is valid
+        let encrypted = u32::from_le_bytes(
+            feistel_encrypt(&name.to_le_bytes(), &FEISTEL_KEY, FEISTEL_ROUNDS).try_into().unwrap()
+        );
+
+        // This is ok because every possible value is valid (see tests)
         unsafe {
-            Name(UnsafeStorage::new_unsafe(name))
+            Name(UnsafeStorage::new_unsafe(encrypted))
         }
     }
 
     pub fn to_num(self) -> u32 {
-        self.raw()
+        let num = self.raw();
+
+        u32::from_le_bytes(
+            feistel_decrypt(&num.to_le_bytes(), &FEISTEL_KEY, FEISTEL_ROUNDS).try_into().unwrap()
+        )
     }
 
     pub fn to_str(&mut self) -> String {
@@ -52,15 +67,7 @@ impl Name {
         let order = ORDER.lines().nth(self.order().get().value() as usize).unwrap();
         let pronouns = PRONOUNS.lines().nth(self.pronouns().get().value() as usize).unwrap();
 
-        let mut name = String::new();
-        name.push_str(first);
-        name.push(' ');
-        name.push_str(last);
-        name.push(' ');
-        name.push_str(order);
-        name.push(' ');
-        name.push_str(pronouns);
-        name
+        format!("{first} {last} {order} ({pronouns})")
     }
 }
 
