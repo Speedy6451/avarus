@@ -1,0 +1,26 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.75"
+axum = "0.7.2"
+bit-struct = "0.3.2"
+feistel_rs = "0.1.0"
+rstar = "0.11.0"
+rustmatica = "0.1.1"
+tokio = { version = "1.0", features = ["full"] }
+tower = { version = "0.4", features = ["util", "timeout", "load-shed", "limit"] }
+tower-http = { version = "0.5.0", features = [
+    "add-extension",
+    "auth",
+    "compression-full",
+    "limit",
+    "trace",
+] }
+tower-layer = "0.3.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
