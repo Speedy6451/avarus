@@ -65,11 +65,15 @@ repeat
     elseif command == "Forward" then
         turtle.forward()
     elseif command == "Backward" then
-        turtle.backward()
+        turtle.back()
     elseif command == "Left" then
-        turtle.left()
+        turtle.turnLeft()
     elseif command == "Right" then
-        turtle.right()
+        turtle.turnRight()
+    elseif command == "Up" then
+        turtle.up()
+    elseif command == "Down" then
+        turtle.down()
     elseif command == "Update" then
         args = {...}
         if args[1] == "nested" then

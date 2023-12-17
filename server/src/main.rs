@@ -20,14 +20,14 @@ use tower::Service;
 use hyper::body::Incoming;
 use nalgebra::Vector3;
 
-use crate::blocks::Block;
+use crate::{blocks::Block, turtle::route};
 mod blocks;
 
 mod turtle;
 
 pub type Vec3 = Vector3<i32>;
 
-#[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Eq, Copy)]
+#[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Eq, Copy, Debug)]
 enum Direction {
     North,
     South,
@@ -69,14 +69,14 @@ struct Turtle {
     fuel: usize,
     /// movement vector of last given command
     queued_movement: Vec3,
-    position: Vec3,
-    goal: Option<Vec3>,
-    facing: Direction,
+    position: Position,
+    goal: Option<Position>,
+    pending_update: bool,
 }
 
 impl Turtle {
     fn new(id: u32, position: Vec3, facing: Direction, fuel: usize) -> Self {
-        Self { name: Name::from_num(id), fuel, queued_movement: Vec3::new(0, 0, 0), position, goal: None, facing }
+        Self { name: Name::from_num(id), fuel, queued_movement: Vec3::new(0, 0, 0), position: (position, facing), goal: None, pending_update: true }
 
     }
 }
@@ -111,7 +111,9 @@ async fn main() -> Result<(), Error> {
         .route("/turtle/new", post(create_turtle))
         .route("/turtle/update/:id", post(command))
         .route("/turtle/client.lua", get(client))
+        .route("/turtle/control/:id/setGoal", post(set_goal))
         .route("/flush", get(flush))
+        .route("/updateTurtles", get(update_turtles))
     .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:48228").await.unwrap();
@@ -202,6 +204,23 @@ async fn create_turtle(
     Json(TurtleResponse {name: Name::from_num(id).to_str(), id, command: TurtleCommand::Update})
 }
 
+async fn set_goal(
+    Path(id): Path<u32>,
+    State(state): State<SharedControl>,
+    Json(req): Json<Position>,
+    ) -> &'static str {
+    state.write().await.turtles[id as usize].goal = Some(req);
+
+    "ACK"
+}
+
+async fn update_turtles(
+    State(state): State<SharedControl>,
+    ) -> &'static str {
+    state.write().await.turtles.iter_mut().for_each(|t| t.pending_update = true);
+    "ACK"
+}
+
 async fn command(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
@@ -227,29 +246,52 @@ fn process_turtle_update(
     let turtle = state.turtles.get_mut(id as usize).context("nonexisting turtle")?;
     let world = &mut state.world;
 
+    if turtle.pending_update {
+        turtle.pending_update = false;
+        return Ok(TurtleCommand::Update);
+    }
+
     println!("above: {}, below: {}, ahead: {}", update.above, update.below, update.ahead);
     if turtle.fuel != update.fuel {
         turtle.fuel = update.fuel;
 
-        turtle.position += turtle.queued_movement;
+        turtle.position.0 += turtle.queued_movement;
     }
 
     world.insert(Block {
         name: update.above,
-        pos: turtle.position + Vec3::new(0, 1, 0),
+        pos: turtle.position.0 + Vec3::y(),
     });
 
     world.insert(Block {
         name: update.ahead,
-        pos: turtle.position + turtle.facing.clone().unit(),
+        pos: turtle.position.0 + turtle.position.1.clone().unit(),
     });
 
     world.insert(Block {
         name: update.below,
-        pos: turtle.position - turtle.facing.clone().unit(),
+        pos: turtle.position.0 - Vec3::y(),
     });
 
-    turtle.queued_movement = turtle.facing.clone().unit();
+    turtle.queued_movement = turtle.position.1.clone().unit();
+
+    if turtle.goal.is_some_and(|g| g == turtle.position) {
+        turtle.goal = None;
+    }
+
+    if let Some(goal) = turtle.goal {
+        // TODO: memoize this whenever we aren't digging
+        let route = route(turtle.position, goal, world);
+        println!("route: {:?}", route);
+        let next_move = difference(route[0], route[1]).unwrap();
+        turtle.queued_movement = next_move.delta(turtle.position.1);
+        match next_move {
+            TurtleCommand::Left => turtle.position.1 = turtle.position.1.left(),
+            TurtleCommand::Right => turtle.position.1 = turtle.position.1.right(),
+            _ => {},
+        }
+        return Ok(next_move);
+    }
 
     Ok(TurtleCommand::Wait)
 }
@@ -279,6 +321,10 @@ fn difference(from: Position, to: Position) -> Option<TurtleCommand> {
             Some(Forward)
         } else if to.0 == from.0 - from.1.unit() {
             Some(Backward)
+        } else if to.0 == from.0 + Vec3::y() {
+            Some(Up)
+        } else if to.0 == from.0 - Vec3::y() {
+            Some(Down)
         } else {
             None
         }
@@ -326,6 +372,19 @@ enum TurtleCommand {
     TakeInventory,
     Update,
     Poweroff,
+}
+
+impl TurtleCommand {
+   fn delta(&self, direction: Direction) -> Vec3 {
+       let dir = direction.unit();
+       match self {
+        TurtleCommand::Forward => dir,
+        TurtleCommand::Backward => -dir,
+        TurtleCommand::Up => Vec3::y(),
+        TurtleCommand::Down => -Vec3::y(),
+        _ => Vec3::zeros(),
+    }
+   }
 }
 
 #[derive(Serialize, Deserialize)]
