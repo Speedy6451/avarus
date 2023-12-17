@@ -63,7 +63,7 @@ impl Direction {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 struct Turtle {
     name: Name,
     fuel: usize,
@@ -72,11 +72,12 @@ struct Turtle {
     position: Position,
     goal: Option<Position>,
     pending_update: bool,
+    moves: VecDeque<TurtleCommand>,
 }
 
 impl Turtle {
     fn new(id: u32, position: Vec3, facing: Direction, fuel: usize) -> Self {
-        Self { name: Name::from_num(id), fuel, queued_movement: Vec3::new(0, 0, 0), position: (position, facing), goal: None, pending_update: true }
+        Self { name: Name::from_num(id), fuel, queued_movement: Vec3::new(0, 0, 0), position: (position, facing), goal: None, pending_update: true, moves: VecDeque::new() }
 
     }
 }
@@ -109,10 +110,10 @@ async fn main() -> Result<(), Error> {
 
     let serv = Router::new()
         .route("/turtle/new", post(create_turtle))
-        .route("/turtle/update/:id", post(command))
+        .route("/turtle/:id/update", post(command))
         .route("/turtle/client.lua", get(client))
-        .route("/turtle/setGoal/:id", post(set_goal))
-        .route("/turtle/info/:id", get(turtle_info))
+        .route("/turtle/:id/setGoal", post(set_goal))
+        .route("/turtle/:id/info", get(turtle_info))
         .route("/turtle/updateAll", get(update_turtles))
         .route("/flush", get(flush))
     .with_state(state.clone());
@@ -227,8 +228,22 @@ async fn turtle_info(
     State(state): State<SharedControl>,
     ) -> Json<Turtle> {
     let state = &mut state.read().await;
+    let turtle = &state.turtles[id as usize];
 
-    Json(state.turtles[id as usize].clone())
+    let mut pseudomoves: VecDeque<TurtleCommand> = VecDeque::new();
+    turtle.moves.front().map(|m| pseudomoves.push_front(m.clone()));
+
+    let cloned = Turtle {
+        name: turtle.name.clone(),
+        fuel: turtle.fuel,
+        queued_movement: turtle.queued_movement.clone(),
+        position: turtle.position.clone(),
+        goal: turtle.goal.clone(),
+        pending_update: turtle.pending_update,
+        moves: pseudomoves,
+    };
+
+    Json(cloned)
 }
 
 async fn command(
@@ -266,6 +281,7 @@ fn process_turtle_update(
         turtle.fuel = update.fuel;
 
         turtle.position.0 += turtle.queued_movement;
+        turtle.queued_movement = Vec3::zeros();
     }
 
     let above = Block {
@@ -288,8 +304,6 @@ fn process_turtle_update(
     };
     world.remove_at_point(&below.pos.into());
     world.insert(below);
-
-    turtle.queued_movement = turtle.position.1.clone().unit();
 
     if turtle.goal.is_some_and(|g| g == turtle.position) {
         turtle.goal = None;
@@ -373,7 +387,7 @@ enum TurtleMineMethod {
     Strip,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 enum TurtleCommand {
     Wait,
     Forward,

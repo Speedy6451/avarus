@@ -123,7 +123,7 @@ repeat
     }
 
     local rsp = http.post(
-        endpoint .. "/turtle/update/" .. id,
+        endpoint .. "/turtle/" .. id  .. "/update" ,
         textutils.serializeJSON(info),
         { ["Content-Type"] = "application/json" }
     )
