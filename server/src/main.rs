@@ -2,7 +2,7 @@ use std::{env::args, sync::Arc, fs, io::ErrorKind, collections::VecDeque};
 
 use axum::{
     routing::{get, post},
-    Router, extract::{State, Path}, Json, http::{request, Request},
+    Router, extract::{State, Path}, Json, http::{request},
 };
 use anyhow::{Error, Ok, Context};
 use blocks::World;
@@ -10,7 +10,7 @@ use rstar::{self, AABB};
 
 mod names;
 use names::Name;
-use tokio::{sync::{Mutex, RwLock, watch::{self, Sender}}, signal};
+use tokio::{sync::{Mutex, RwLock, watch::{self}}};
 use serde::{Serialize, Deserialize};
 use const_format::formatcp;
 use hyper_util::rt::TokioIo;
@@ -18,10 +18,10 @@ use tower::Service;
 use hyper::body::Incoming;
 use nalgebra::Vector3;
 
-use crate::{blocks::Block, turtle::route};
+use crate::{blocks::Block, paths::route};
 mod blocks;
 
-mod turtle;
+mod paths;
 
 pub type Vec3 = Vector3<i32>;
 
@@ -62,27 +62,8 @@ impl Direction {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Turtle {
-    name: Name,
-    fuel: usize,
-    /// movement vector of last given command
-    queued_movement: Vec3,
-    position: Position,
-    goal: Option<Position>,
-    pending_update: bool,
-    moves: VecDeque<TurtleCommand>,
-}
-
-impl Turtle {
-    fn new(id: u32, position: Vec3, facing: Direction, fuel: usize) -> Self {
-        Self { name: Name::from_num(id), fuel, queued_movement: Vec3::new(0, 0, 0), position: (position, facing), goal: None, pending_update: true, moves: VecDeque::new() }
-
-    }
-}
-
-#[derive(Serialize, Deserialize)]
 struct ControlState {
-    turtles: Vec<Turtle>,
+    turtles: Vec<turtle::Turtle>,
     world: blocks::World,
     //chunkloaders: unimplemented!(),
 }
@@ -117,7 +98,7 @@ async fn main() -> Result<(), Error> {
     .with_state(state.clone());
 
 
-    let server = serve(server).await;
+    let server = safe_kill::serve(server).await;
 
     println!("writing");
     write_to_disk(state).await?;
@@ -127,60 +108,7 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-async fn serve(server: Router) -> Sender<()> {
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:48228").await.unwrap();
-
-    let (close_tx, close_rx) = watch::channel(());
-
-    loop {
-        let (socket, _) = tokio::select! {
-            result = listener.accept() => {
-                result.unwrap()
-            }
-            _ = shutdown_signal() => {
-                println!("cancelled connection");
-                break;
-            }
-        };
-
-        let tower = server.clone();
-        let close_rx = close_rx.clone();
-
-        tokio::spawn(async move {
-            let socket = TokioIo::new(socket);
-            let hyper_service = hyper::service::service_fn(move |request: Request<Incoming>| {
-                tower.clone().call(request)
-            });
-
-            let conn = hyper::server::conn::http1::Builder::new()
-                .serve_connection(socket, hyper_service)
-                .with_upgrades(); // future
-
-            let mut conn = std::pin::pin!(conn);
-
-            loop {
-                tokio::select! {
-                    result = conn.as_mut() => {
-                        if result.is_err() {
-                            println!("req failed");
-                        }
-                        break;
-                    }
-                    _ = shutdown_signal() => {
-                        println!("starting shutdown");
-                        conn.as_mut().graceful_shutdown();
-                    }
-                }
-            }
-
-            drop(close_rx);
-        });
-    };
-
-    drop(listener);
-
-    close_tx
-}
+mod safe_kill; 
 
 async fn write_to_disk(state: SharedControl) -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(&(*state.read().await))?;
@@ -194,26 +122,17 @@ async fn flush(State(state): State<SharedControl>) -> &'static str {
     "ACK"
 }
 
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await.unwrap();
-    };
-
-    ctrl_c.await
-}
-
 async fn create_turtle(
     State(state): State<SharedControl>,
-    Json(req): Json<TurtleRegister>,
-    ) -> Json<TurtleResponse> {
+    Json(req): Json<turtle::TurtleRegister>,
+    ) -> Json<turtle::TurtleResponse> {
     let turtles = &mut state.write().await.turtles;
     let id = turtles.len() as u32;
-    turtles.push(Turtle::new(id, req.position, req.facing, req.fuel));
+    turtles.push(turtle::Turtle::new(id, req.position, req.facing, req.fuel));
 
     println!("turt {id}");
 
-    Json(TurtleResponse {name: Name::from_num(id).to_str(), id, command: TurtleCommand::Update})
+    Json(turtle::TurtleResponse {name: Name::from_num(id).to_str(), id, command: turtle::TurtleCommand::Update})
 }
 
 async fn set_goal(
@@ -236,14 +155,14 @@ async fn update_turtles(
 async fn turtle_info(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
-    ) -> Json<Turtle> {
+    ) -> Json<turtle::Turtle> {
     let state = &mut state.read().await;
     let turtle = &state.turtles[id as usize];
 
-    let mut pseudomoves: VecDeque<TurtleCommand> = VecDeque::new();
+    let mut pseudomoves: VecDeque<turtle::TurtleCommand> = VecDeque::new();
     turtle.moves.front().map(|m| pseudomoves.push_front(m.clone()));
 
-    let cloned = Turtle {
+    let cloned = turtle::Turtle {
         name: turtle.name.clone(),
         fuel: turtle.fuel,
         queued_movement: turtle.queued_movement.clone(),
@@ -259,104 +178,26 @@ async fn turtle_info(
 async fn command(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
-    Json(req): Json<TurtleUpdate>,
-    ) -> Json<TurtleCommand> {
+    Json(req): Json<turtle::TurtleUpdate>,
+    ) -> Json<turtle::TurtleCommand> {
     let mut state = &mut state.write().await;
 
     println!("{:?}", &req);
 
     if id as usize > state.turtles.len() {
-        return Json(TurtleCommand::Update);
+        return Json(turtle::TurtleCommand::Update);
     }
 
     Json(
-        process_turtle_update(id, &mut state, req).unwrap_or(TurtleCommand::Update),
+        turtle::process_turtle_update(id, &mut state, req).unwrap_or(turtle::TurtleCommand::Update),
     )
-}
-
-fn process_turtle_update(
-    id: u32,
-    state: &mut ControlState,
-    update: TurtleUpdate,
-    ) -> anyhow::Result<TurtleCommand> {
-    let turtle = state.turtles.get_mut(id as usize).context("nonexisting turtle")?;
-    let world = &mut state.world;
-
-    if turtle.pending_update {
-        turtle.pending_update = false;
-        return Ok(TurtleCommand::Update);
-    }
-
-    println!("above: {}, below: {}, ahead: {}", update.above, update.below, update.ahead);
-    if turtle.fuel != update.fuel {
-        turtle.fuel = update.fuel;
-
-        turtle.position.0 += turtle.queued_movement;
-        turtle.queued_movement = Vec3::zeros();
-    }
-
-    let above = Block {
-        name: update.above,
-        pos: turtle.position.0 + Vec3::y(),
-    };
-    world.remove_at_point(&above.pos.into());
-    world.insert(above);
-
-    let ahead = Block {
-        name: update.ahead,
-        pos: turtle.position.0 + turtle.position.1.clone().unit(),
-    };
-    world.remove_at_point(&ahead.pos.into());
-    world.insert(ahead);
-
-    let below = Block {
-        name: update.below,
-        pos: turtle.position.0 - Vec3::y(),
-    };
-    world.remove_at_point(&below.pos.into());
-    world.insert(below);
-
-    if turtle.goal.is_some_and(|g| g == turtle.position) {
-        turtle.goal = None;
-    }
-
-    if let Some(goal) = turtle.goal {
-        // TODO: memoize this whenever we aren't digging
-        let route = route(turtle.position, goal, world).unwrap();
-        println!("route: {:?}", route);
-        let mut next_move = difference(route[0], route[1]).unwrap();
-        if world.locate_at_point(&route[1].0.into()).is_some_and(|b| b.name != "minecraft:air") {
-            next_move = match next_move {
-                TurtleCommand::Up(_) => TurtleCommand::DigUp,
-                TurtleCommand::Down(_) => TurtleCommand::DigDown,
-                TurtleCommand::Forward(_) => TurtleCommand::Dig,
-                _ => next_move,
-                
-            }
-        }
-        turtle.queued_movement = next_move.delta(turtle.position.1);
-        match next_move {
-            TurtleCommand::Left => turtle.position.1 = turtle.position.1.left(),
-            TurtleCommand::Right => turtle.position.1 = turtle.position.1.right(),
-            _ => {},
-        }
-        return Ok(next_move);
-    }
-
-    Ok(TurtleCommand::Wait(3))
-}
-
-#[derive(Serialize, Deserialize)]
-enum TurtleTask {
-    Mining(TurtleMineJob),
-    Idle,
 }
 
 type Position = (Vec3, Direction);
 
 /// Get a turtle command to map two adjacent positions
-fn difference(from: Position, to: Position) -> Option<TurtleCommand> {
-    use TurtleCommand::*;
+fn difference(from: Position, to: Position) -> Option<turtle::TurtleCommand> {
+    use turtle::TurtleCommand::*;
 
     if from.0 == to.0 {
         if to.1 == from.1.left() {
@@ -406,85 +247,8 @@ enum TurtleMineMethod {
     Clear,
     Strip,
 }
-
-#[derive(Serialize, Deserialize, Clone)]
-enum TurtleCommand {
-    Wait(u32),
-    Forward(u32),
-    Backward(u32),
-    Up(u32),
-    Down(u32),
-    Left,
-    Right,
-    Dig,
-    DigUp,
-    DigDown,
-    PlaceUp,
-    Place,
-    PlaceDown,
-    /// Count
-    DropFront(u32),
-    DropUp(u32),
-    DropDown(u32),
-    Select(u32),
-    /// Slot in inventory
-    ItemInfo(u32),
-    Update,
-    Poweroff,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct InventorySlot {
-    name: String,
-    count: u32,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-enum TurtleCommandResponse {
-    None,
-    Success,
-    Failure,
-    Item(InventorySlot),
-    Inventory(Vec<InventorySlot>),
-}
-
-impl TurtleCommand {
-   fn delta(&self, direction: Direction) -> Vec3 {
-       let dir = direction.unit();
-       match self {
-        TurtleCommand::Forward(count) => dir * *count as i32,
-        TurtleCommand::Backward(count) => -dir * *count as i32,
-        TurtleCommand::Up(count) => Vec3::y() * *count as i32,
-        TurtleCommand::Down(count) => -Vec3::y() * *count as i32,
-        _ => Vec3::zeros(),
-    }
-   }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct TurtleUpdate {
-    fuel: usize,
-    /// Block name
-    ahead: String,
-    above: String,
-    below: String,
-    ret: TurtleCommandResponse,
-}
-
-#[derive(Serialize, Deserialize)]
-struct TurtleRegister {
-    fuel: usize,
-    position: Vec3,
-    facing: Direction,
-}
-
-#[derive(Serialize, Deserialize)]
-struct TurtleResponse {
-    name: String,
-    id: u32,
-    command: TurtleCommand,
-}
-
 async fn client() -> &'static str {
     formatcp!("local ipaddr = {}\n{}", include_str!("../ipaddr.txt"), include_str!("../../client/client.lua"))
 }
+
+mod turtle;
