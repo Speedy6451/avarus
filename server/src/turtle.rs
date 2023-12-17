@@ -1,8 +1,9 @@
-use super::TurtleMineJob;
-
-use super::difference;
 
 use crate::blocks::Block;
+use crate::blocks::Direction;
+use crate::blocks::Position;
+use crate::blocks::Vec3;
+use crate::mine::TurtleMineJob;
 
 use anyhow::Ok;
 
@@ -11,13 +12,8 @@ use anyhow::Context;
 
 use super::ControlState;
 
-use super::Direction;
-
 use std::collections::VecDeque;
 
-use super::Position;
-
-use super::Vec3;
 
 use super::names::Name;
 
@@ -214,4 +210,33 @@ pub(crate) struct TurtleResponse {
     pub(crate) name: String,
     pub(crate) id: u32,
     pub(crate) command: TurtleCommand,
+}
+
+/// Get a turtle command to map two adjacent positions
+fn difference(from: Position, to: Position) -> Option<TurtleCommand> {
+    use TurtleCommand::*;
+
+    if from.0 == to.0 {
+        if to.1 == from.1.left() {
+            Some(Left)
+        } else if to.1 == from.1.right() {
+            Some(Right)
+        } else {
+            None
+        }
+    } else if to.1 == from.1 {
+        if to.0 == from.0 + from.1.unit() {
+            Some(Forward(1))
+        } else if to.0 == from.0 - from.1.unit() {
+            Some(Backward(1))
+        } else if to.0 == from.0 + Vec3::y() {
+            Some(Up(1))
+        } else if to.0 == from.0 - Vec3::y() {
+            Some(Down(1))
+        } else {
+            None
+        }
+    } else {
+        None
+    }
 }

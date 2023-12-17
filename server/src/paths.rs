@@ -1,12 +1,10 @@
 use std::rc::Rc;
 
 use crate::{
-    blocks::{Block, World},
-    Direction, Position,
+    blocks::{Block, World, Position, Direction, Vec3},
 };
 use pathfinding::prelude::astar;
 
-use super::Vec3;
 
 pub fn route(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
     // attempt at not crashing by looking infinitely into the abyss

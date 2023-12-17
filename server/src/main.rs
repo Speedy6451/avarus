@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, env::args, fs, io::ErrorKind, sync::Arc};
+use std::{collections::VecDeque, io::ErrorKind, sync::Arc};
 
 use anyhow::{Context, Error, Ok};
 use axum::{
@@ -7,13 +7,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use blocks::World;
+use blocks::{World, Position};
 use rstar::{self, AABB};
 
-mod names;
 use const_format::formatcp;
 use hyper::body::Incoming;
-use hyper_util::rt::TokioIo;
 use nalgebra::Vector3;
 use names::Name;
 use serde::{Deserialize, Serialize};
@@ -24,47 +22,13 @@ use tokio::sync::{
 use tower::Service;
 
 use crate::{blocks::Block, paths::route};
+
 mod blocks;
-
+mod names;
+mod mine;
 mod paths;
-
-pub type Vec3 = Vector3<i32>;
-
-#[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Eq, Copy, Debug)]
-enum Direction {
-    North,
-    South,
-    East,
-    West,
-}
-
-impl Direction {
-    fn left(self) -> Self {
-        match self {
-            Direction::North => Direction::West,
-            Direction::South => Direction::East,
-            Direction::East => Direction::North,
-            Direction::West => Direction::South,
-        }
-    }
-
-    fn right(self) -> Self {
-        match self {
-            Direction::North => Direction::East,
-            Direction::South => Direction::West,
-            Direction::East => Direction::South,
-            Direction::West => Direction::North,
-        }
-    }
-    fn unit(self) -> Vec3 {
-        match self {
-            Direction::North => Vec3::new(0, 0, -1),
-            Direction::South => Vec3::new(0, 0, 1),
-            Direction::East => Vec3::new(1, 0, 0),
-            Direction::West => Vec3::new(-1, 0, 0),
-        }
-    }
-}
+mod safe_kill;
+mod turtle;
 
 #[derive(Serialize, Deserialize)]
 struct ControlState {
@@ -114,7 +78,6 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-mod safe_kill;
 
 async fn write_to_disk(state: SharedControl) -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(&(*state.read().await))?;
@@ -209,58 +172,6 @@ async fn command(
     )
 }
 
-type Position = (Vec3, Direction);
-
-/// Get a turtle command to map two adjacent positions
-fn difference(from: Position, to: Position) -> Option<turtle::TurtleCommand> {
-    use turtle::TurtleCommand::*;
-
-    if from.0 == to.0 {
-        if to.1 == from.1.left() {
-            Some(Left)
-        } else if to.1 == from.1.right() {
-            Some(Right)
-        } else {
-            None
-        }
-    } else if to.1 == from.1 {
-        if to.0 == from.0 + from.1.unit() {
-            Some(Forward(1))
-        } else if to.0 == from.0 - from.1.unit() {
-            Some(Backward(1))
-        } else if to.0 == from.0 + Vec3::y() {
-            Some(Up(1))
-        } else if to.0 == from.0 - Vec3::y() {
-            Some(Down(1))
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct TurtleMineJobParams {
-    region: AABB<[i32; 3]>,
-    to_mine: Vec<Vec3>,
-    method: TurtleMineMethod,
-    refuel: Position,
-    storage: Position,
-}
-
-#[derive(Serialize, Deserialize)]
-struct TurtleMineJob {
-    to_mine: VecDeque<Vec3>,
-    mined: AABB<[i32; 3]>,
-    params: TurtleMineJobParams,
-}
-
-#[derive(Serialize, Deserialize)]
-enum TurtleMineMethod {
-    Clear,
-    Strip,
-}
 async fn client() -> &'static str {
     formatcp!(
         "local ipaddr = {}\n{}",
@@ -269,4 +180,3 @@ async fn client() -> &'static str {
     )
 }
 
-mod turtle;
