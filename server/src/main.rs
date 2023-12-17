@@ -7,11 +7,9 @@ use axum::{
 use anyhow::{Error, Ok, Context};
 use blocks::World;
 use rstar::{self, AABB};
-use rustmatica::{BlockState};
 
 mod names;
 use names::Name;
-use serde_json::Value;
 use tokio::{sync::{Mutex, RwLock, watch}, signal};
 use serde::{Serialize, Deserialize};
 use const_format::formatcp;
@@ -108,7 +106,7 @@ async fn main() -> Result<(), Error> {
 
     let state = SharedControl::new(RwLock::new(state));
 
-    let serv = Router::new()
+    let server = Router::new()
         .route("/turtle/new", post(create_turtle))
         .route("/turtle/:id/update", post(command))
         .route("/turtle/client.lua", get(client))
@@ -118,12 +116,20 @@ async fn main() -> Result<(), Error> {
         .route("/flush", get(flush))
     .with_state(state.clone());
 
+    serve(server).await;
+
+    write_to_disk(state).await?;
+
+    Ok(())
+}
+
+async fn serve(serv: Router) {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:48228").await.unwrap();
 
     let (close_tx, close_rx) = watch::channel(());
 
     loop {
-        let (socket, remote_addr) = tokio::select! {
+        let (socket, _) = tokio::select! {
             result = listener.accept() => {
                 result.unwrap()
             }
@@ -167,9 +173,9 @@ async fn main() -> Result<(), Error> {
         });
     };
 
-    write_to_disk(state).await?;
+    drop(listener);
 
-    Ok(())
+    close_tx.closed().await;
 }
 
 async fn write_to_disk(state: SharedControl) -> anyhow::Result<()> {
