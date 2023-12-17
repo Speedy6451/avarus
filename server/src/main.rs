@@ -2,18 +2,21 @@ use std::{env::args, sync::Arc, fs, io::ErrorKind};
 
 use axum::{
     routing::{get, post},
-    Router, extract::{State, Path}, Json,
+    Router, extract::{State, Path}, Json, http::{request, Request},
 };
-use anyhow::Error;
+use anyhow::{Error, Ok};
 use rstar;
 use rustmatica::{BlockState, util::{UVec3, Vec3}};
 
 mod names;
 use names::Name;
 use serde_json::Value;
-use tokio::sync::{Mutex, RwLock};
+use tokio::{sync::{Mutex, RwLock, watch}, signal};
 use serde::{Serialize, Deserialize};
 use const_format::formatcp;
+use hyper_util::rt::TokioIo;
+use tower::Service;
+use hyper::body::Incoming;
 
 #[derive(Serialize, Deserialize)]
 enum Direction {
@@ -79,11 +82,12 @@ type SharedControl = Arc<RwLock<ControlState>>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let state = match fs::File::open("state.json") {
-        Ok(file) => {
-            serde_json::from_reader(file)?
+    
+    let state = match tokio::fs::OpenOptions::new().read(true).open("state.json").await {
+        tokio::io::Result::Ok(file) => {
+            serde_json::from_reader(file.into_std().await)?
         },
-        Err(e) => match e.kind() {
+        tokio::io::Result::Err(e) => match e.kind() {
             ErrorKind::NotFound => {
                 ControlState { turtles: Vec::new() }
             },
@@ -97,13 +101,75 @@ async fn main() -> Result<(), Error> {
         .route("/turtle/new", post(create_turtle))
         .route("/turtle/update/:id", post(command))
         .route("/turtle/client.lua", get(client))
-    .with_state(state);
+    .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:48228").await.unwrap();
 
-    axum::serve(listener, serv).await.unwrap();
+    let (close_tx, close_rx) = watch::channel(());
+
+    loop {
+        let (socket, remote_addr) = tokio::select! {
+            result = listener.accept() => {
+                result.unwrap()
+            }
+            _ = shutdown_signal() => {
+                println!("cancelled connection");
+                break;
+            }
+        };
+
+        let tower = serv.clone();
+        let close_rx = close_rx.clone();
+
+        tokio::spawn(async move {
+            let socket = TokioIo::new(socket);
+            let hyper_service = hyper::service::service_fn(move |request: Request<Incoming>| {
+                tower.clone().call(request)
+            });
+
+            let conn = hyper::server::conn::http1::Builder::new()
+                .serve_connection(socket, hyper_service)
+                .with_upgrades(); // future
+
+            let mut conn = std::pin::pin!(conn);
+
+            loop {
+                tokio::select! {
+                    result = conn.as_mut() => {
+                        if result.is_err() {
+                            println!("req failed");
+                        }
+                        break;
+                    }
+                    _ = shutdown_signal() => {
+                        println!("starting shutdown");
+                        conn.as_mut().graceful_shutdown();
+                    }
+                }
+            }
+
+            drop(close_rx);
+        });
+    };
+
+    write_to_disk(state).await?;
 
     Ok(())
+}
+
+async fn write_to_disk(state: SharedControl) -> anyhow::Result<()> {
+    let json = serde_json::to_string_pretty(&(*state.read().await))?;
+    tokio::fs::write("state.json", json).await?;
+    Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await.unwrap();
+    };
+
+    ctrl_c.await
 }
 
 async fn create_turtle(
@@ -173,5 +239,5 @@ struct TurtleResponse {
 }
 
 async fn client() -> &'static str {
-    formatcp!("local ipaddr = {}\n{}", env!("GLOBAL_IP"), include_str!("../../client/client.lua"))
+    formatcp!("local ipaddr = {}\n{}", include_str!("../ipaddr.txt"), include_str!("../../client/client.lua"))
 }
