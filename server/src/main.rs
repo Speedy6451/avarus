@@ -258,20 +258,26 @@ fn process_turtle_update(
         turtle.position.0 += turtle.queued_movement;
     }
 
-    world.insert(Block {
+    let above = Block {
         name: update.above,
         pos: turtle.position.0 + Vec3::y(),
-    });
+    };
+    world.remove_at_point(&above.pos.into());
+    world.insert(above);
 
-    world.insert(Block {
+    let ahead = Block {
         name: update.ahead,
         pos: turtle.position.0 + turtle.position.1.clone().unit(),
-    });
+    };
+    world.remove_at_point(&ahead.pos.into());
+    world.insert(ahead);
 
-    world.insert(Block {
+    let below = Block {
         name: update.below,
         pos: turtle.position.0 - Vec3::y(),
-    });
+    };
+    world.remove_at_point(&below.pos.into());
+    world.insert(below);
 
     turtle.queued_movement = turtle.position.1.clone().unit();
 
