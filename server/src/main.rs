@@ -101,6 +101,7 @@ async fn main() -> Result<(), Error> {
         .route("/turtle/new", post(create_turtle))
         .route("/turtle/update/:id", post(command))
         .route("/turtle/client.lua", get(client))
+        .route("/flush", get(flush))
     .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:48228").await.unwrap();
@@ -161,6 +162,12 @@ async fn write_to_disk(state: SharedControl) -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(&(*state.read().await))?;
     tokio::fs::write("state.json", json).await?;
     Ok(())
+}
+
+async fn flush(State(state): State<SharedControl>) -> &'static str {
+    write_to_disk(state).await.unwrap();
+
+    "ACK"
 }
 
 async fn shutdown_signal() {
