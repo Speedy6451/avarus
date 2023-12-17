@@ -1,7 +1,3 @@
--- wget run http://68.46.126.104:48228/turtle/client.lua
-
-local ipaddr = "68.46.126.104"
-
 if not ipaddr then
     if fs.exists("/disk/ip") then
         local ipfile = fs.open("/disk/ip")

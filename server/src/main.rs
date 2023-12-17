@@ -13,6 +13,7 @@ use names::Name;
 use serde_json::Value;
 use tokio::sync::{Mutex, RwLock};
 use serde::{Serialize, Deserialize};
+use const_format::formatcp;
 
 #[derive(Serialize, Deserialize)]
 enum Direction {
@@ -172,5 +173,5 @@ struct TurtleResponse {
 }
 
 async fn client() -> &'static str {
-    include_str!("../../client/client.lua")
+    formatcp!("local ipaddr = {}\n{}", env!("GLOBAL_IP"), include_str!("../../client/client.lua"))
 }
