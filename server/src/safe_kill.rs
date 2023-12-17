@@ -19,7 +19,9 @@ use tokio::sync::watch::Sender;
 use axum::Router;
 
 pub(crate) async fn serve(server: Router) -> Sender<()> {
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:48228").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:48228")
+        .await
+        .unwrap();
 
     let (close_tx, close_rx) = watch::channel(());
 
@@ -66,7 +68,7 @@ pub(crate) async fn serve(server: Router) -> Sender<()> {
 
             drop(close_rx);
         });
-    };
+    }
 
     drop(listener);
 
@@ -75,8 +77,7 @@ pub(crate) async fn serve(server: Router) -> Sender<()> {
 
 pub(crate) async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await.unwrap();
+        signal::ctrl_c().await.unwrap();
     };
 
     ctrl_c.await

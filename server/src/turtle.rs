@@ -21,8 +21,8 @@ use super::Vec3;
 
 use super::names::Name;
 
-use serde::Serialize;
 use serde::Deserialize;
+use serde::Serialize;
 
 use super::paths::route;
 
@@ -40,8 +40,15 @@ pub(crate) struct Turtle {
 
 impl Turtle {
     pub(crate) fn new(id: u32, position: Vec3, facing: Direction, fuel: usize) -> Self {
-        Self { name: Name::from_num(id), fuel, queued_movement: Vec3::new(0, 0, 0), position: (position, facing), goal: None, pending_update: true, moves: VecDeque::new() }
-
+        Self {
+            name: Name::from_num(id),
+            fuel,
+            queued_movement: Vec3::new(0, 0, 0),
+            position: (position, facing),
+            goal: None,
+            pending_update: true,
+            moves: VecDeque::new(),
+        }
     }
 }
 
@@ -49,8 +56,11 @@ pub(crate) fn process_turtle_update(
     id: u32,
     state: &mut ControlState,
     update: TurtleUpdate,
-    ) -> anyhow::Result<TurtleCommand> {
-    let turtle = state.turtles.get_mut(id as usize).context("nonexisting turtle")?;
+) -> anyhow::Result<TurtleCommand> {
+    let turtle = state
+        .turtles
+        .get_mut(id as usize)
+        .context("nonexisting turtle")?;
     let world = &mut state.world;
 
     if turtle.pending_update {
@@ -58,7 +68,10 @@ pub(crate) fn process_turtle_update(
         return Ok(TurtleCommand::Update);
     }
 
-    println!("above: {}, below: {}, ahead: {}", update.above, update.below, update.ahead);
+    println!(
+        "above: {}, below: {}, ahead: {}",
+        update.above, update.below, update.ahead
+    );
     if turtle.fuel != update.fuel {
         turtle.fuel = update.fuel;
 
@@ -96,20 +109,22 @@ pub(crate) fn process_turtle_update(
         let route = route(turtle.position, goal, world).unwrap();
         println!("route: {:?}", route);
         let mut next_move = difference(route[0], route[1]).unwrap();
-        if world.locate_at_point(&route[1].0.into()).is_some_and(|b| b.name != "minecraft:air") {
+        if world
+            .locate_at_point(&route[1].0.into())
+            .is_some_and(|b| b.name != "minecraft:air")
+        {
             next_move = match next_move {
                 TurtleCommand::Up(_) => TurtleCommand::DigUp,
                 TurtleCommand::Down(_) => TurtleCommand::DigDown,
                 TurtleCommand::Forward(_) => TurtleCommand::Dig,
                 _ => next_move,
-            
             }
         }
         turtle.queued_movement = next_move.delta(turtle.position.1);
         match next_move {
             TurtleCommand::Left => turtle.position.1 = turtle.position.1.left(),
             TurtleCommand::Right => turtle.position.1 = turtle.position.1.right(),
-            _ => {},
+            _ => {}
         }
         return Ok(next_move);
     }
@@ -165,16 +180,16 @@ pub(crate) enum TurtleCommandResponse {
 }
 
 impl TurtleCommand {
-   pub(crate) fn delta(&self, direction: Direction) -> Vec3 {
-       let dir = direction.unit();
-       match self {
-        TurtleCommand::Forward(count) => dir * *count as i32,
-        TurtleCommand::Backward(count) => -dir * *count as i32,
-        TurtleCommand::Up(count) => Vec3::y() * *count as i32,
-        TurtleCommand::Down(count) => -Vec3::y() * *count as i32,
-        _ => Vec3::zeros(),
+    pub(crate) fn delta(&self, direction: Direction) -> Vec3 {
+        let dir = direction.unit();
+        match self {
+            TurtleCommand::Forward(count) => dir * *count as i32,
+            TurtleCommand::Backward(count) => -dir * *count as i32,
+            TurtleCommand::Up(count) => Vec3::y() * *count as i32,
+            TurtleCommand::Down(count) => -Vec3::y() * *count as i32,
+            _ => Vec3::zeros(),
+        }
     }
-   }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -1,22 +1,27 @@
-use std::{env::args, sync::Arc, fs, io::ErrorKind, collections::VecDeque};
+use std::{collections::VecDeque, env::args, fs, io::ErrorKind, sync::Arc};
 
+use anyhow::{Context, Error, Ok};
 use axum::{
+    extract::{Path, State},
+    http::request,
     routing::{get, post},
-    Router, extract::{State, Path}, Json, http::{request},
+    Json, Router,
 };
-use anyhow::{Error, Ok, Context};
 use blocks::World;
 use rstar::{self, AABB};
 
 mod names;
-use names::Name;
-use tokio::{sync::{Mutex, RwLock, watch::{self}}};
-use serde::{Serialize, Deserialize};
 use const_format::formatcp;
-use hyper_util::rt::TokioIo;
-use tower::Service;
 use hyper::body::Incoming;
+use hyper_util::rt::TokioIo;
 use nalgebra::Vector3;
+use names::Name;
+use serde::{Deserialize, Serialize};
+use tokio::sync::{
+    watch::{self},
+    Mutex, RwLock,
+};
+use tower::Service;
 
 use crate::{blocks::Block, paths::route};
 mod blocks;
@@ -42,7 +47,7 @@ impl Direction {
             Direction::West => Direction::South,
         }
     }
-    
+
     fn right(self) -> Self {
         match self {
             Direction::North => Direction::East,
@@ -72,17 +77,19 @@ type SharedControl = Arc<RwLock<ControlState>>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    
-    let state = match tokio::fs::OpenOptions::new().read(true).open("state.json").await {
-        tokio::io::Result::Ok(file) => {
-            serde_json::from_reader(file.into_std().await)?
-        },
+    let state = match tokio::fs::OpenOptions::new()
+        .read(true)
+        .open("state.json")
+        .await
+    {
+        tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
         tokio::io::Result::Err(e) => match e.kind() {
-            ErrorKind::NotFound => {
-                ControlState { turtles:Vec::new(), world: World::new() }
+            ErrorKind::NotFound => ControlState {
+                turtles: Vec::new(),
+                world: World::new(),
             },
-            _ => panic!()
-        }
+            _ => panic!(),
+        },
     };
 
     let state = SharedControl::new(RwLock::new(state));
@@ -95,8 +102,7 @@ async fn main() -> Result<(), Error> {
         .route("/turtle/:id/info", get(turtle_info))
         .route("/turtle/updateAll", get(update_turtles))
         .route("/flush", get(flush))
-    .with_state(state.clone());
-
+        .with_state(state.clone());
 
     let server = safe_kill::serve(server).await;
 
@@ -108,7 +114,7 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-mod safe_kill; 
+mod safe_kill;
 
 async fn write_to_disk(state: SharedControl) -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(&(*state.read().await))?;
@@ -125,42 +131,52 @@ async fn flush(State(state): State<SharedControl>) -> &'static str {
 async fn create_turtle(
     State(state): State<SharedControl>,
     Json(req): Json<turtle::TurtleRegister>,
-    ) -> Json<turtle::TurtleResponse> {
+) -> Json<turtle::TurtleResponse> {
     let turtles = &mut state.write().await.turtles;
     let id = turtles.len() as u32;
     turtles.push(turtle::Turtle::new(id, req.position, req.facing, req.fuel));
 
     println!("turt {id}");
 
-    Json(turtle::TurtleResponse {name: Name::from_num(id).to_str(), id, command: turtle::TurtleCommand::Update})
+    Json(turtle::TurtleResponse {
+        name: Name::from_num(id).to_str(),
+        id,
+        command: turtle::TurtleCommand::Update,
+    })
 }
 
 async fn set_goal(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
     Json(req): Json<Position>,
-    ) -> &'static str {
+) -> &'static str {
     state.write().await.turtles[id as usize].goal = Some(req);
 
     "ACK"
 }
 
-async fn update_turtles(
-    State(state): State<SharedControl>,
-    ) -> &'static str {
-    state.write().await.turtles.iter_mut().for_each(|t| t.pending_update = true);
+async fn update_turtles(State(state): State<SharedControl>) -> &'static str {
+    state
+        .write()
+        .await
+        .turtles
+        .iter_mut()
+        .for_each(|t| t.pending_update = true);
     "ACK"
 }
 
 async fn turtle_info(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
-    ) -> Json<turtle::Turtle> {
+) -> Json<turtle::Turtle> {
     let state = &mut state.read().await;
     let turtle = &state.turtles[id as usize];
 
     let mut pseudomoves: VecDeque<turtle::TurtleCommand> = VecDeque::new();
-    turtle.moves.front().map(|m| pseudomoves.push_front(m.clone()));
+    turtle
+        .moves
+        .front()
+        .map(|m| pseudomoves.push_front(m.clone()));
 
     let cloned = turtle::Turtle {
         name: turtle.name.clone(),
@@ -179,7 +195,7 @@ async fn command(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
     Json(req): Json<turtle::TurtleUpdate>,
-    ) -> Json<turtle::TurtleCommand> {
+) -> Json<turtle::TurtleCommand> {
     let mut state = &mut state.write().await;
 
     println!("{:?}", &req);
@@ -219,7 +235,6 @@ fn difference(from: Position, to: Position) -> Option<turtle::TurtleCommand> {
         } else {
             None
         }
-        
     } else {
         None
     }
@@ -227,7 +242,7 @@ fn difference(from: Position, to: Position) -> Option<turtle::TurtleCommand> {
 
 #[derive(Serialize, Deserialize)]
 struct TurtleMineJobParams {
-    region: AABB<[i32;3]>,
+    region: AABB<[i32; 3]>,
     to_mine: Vec<Vec3>,
     method: TurtleMineMethod,
     refuel: Position,
@@ -237,10 +252,9 @@ struct TurtleMineJobParams {
 #[derive(Serialize, Deserialize)]
 struct TurtleMineJob {
     to_mine: VecDeque<Vec3>,
-    mined: AABB<[i32;3]>,
+    mined: AABB<[i32; 3]>,
     params: TurtleMineJobParams,
 }
-
 
 #[derive(Serialize, Deserialize)]
 enum TurtleMineMethod {
@@ -248,7 +262,11 @@ enum TurtleMineMethod {
     Strip,
 }
 async fn client() -> &'static str {
-    formatcp!("local ipaddr = {}\n{}", include_str!("../ipaddr.txt"), include_str!("../../client/client.lua"))
+    formatcp!(
+        "local ipaddr = {}\n{}",
+        include_str!("../ipaddr.txt"),
+        include_str!("../../client/client.lua")
+    )
 }
 
 mod turtle;
