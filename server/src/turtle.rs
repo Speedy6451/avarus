@@ -15,23 +15,23 @@ fn next(from: &Position, world: &World) -> Vec<(Position, u32)> {
     vec.push(((from.0, from.1.left()),1));
     vec.push(((from.0, from.1.right()),1));
 
-    fn insert(vec: &mut Vec<(Position, u32)>, point: Vec3, orientation: Direction, world: &World) {
+    fn insert(vec: &mut Vec<(Position, u32)>, point: Vec3, orientation: Direction, world: &World, unknown: Option<u32>) {
         world.locate_at_point(&point.into())
-            .map_or(Some(UNKNOWN), |b| difficulty(&b.name))
+            .map_or(unknown, |b| difficulty(&b.name))
             .map(|d| vec.push(((point, orientation), d)));
     }
 
     let ahead = from.0 + from.1.unit();
-    insert(&mut vec, ahead, from.1, world);
+    insert(&mut vec, ahead, from.1, world, UNKNOWN);
 
     let behind = from.0 - from.1.unit();
-    insert(&mut vec, behind, from.1, world);
+    insert(&mut vec, behind, from.1, world, None);
     
     let above = from.0 + Vec3::y();
-    insert(&mut vec, above, from.1, world);
+    insert(&mut vec, above, from.1, world,UNKNOWN);
 
     let below = from.0 - Vec3::y();
-    insert(&mut vec, below, from.1, world);
+    insert(&mut vec, below, from.1, world,UNKNOWN);
 
     vec
 }
@@ -44,11 +44,11 @@ const GARBAGE: [&str; 3] = [
 ];
 
 /// time taken to go through uncharted territory (in turtle. calls)
-const UNKNOWN: u32 = 2;
+const UNKNOWN: Option<u32> = Some(2);
 
 // time to go somewhere
 fn difficulty(name: &str) -> Option<u32> {
     if name == "minecraft:air" { return Some(1) };
-    if GARBAGE.contains(&name) { return Some(2)};
+    //if GARBAGE.contains(&name) { return Some(2)};
     None
 }
