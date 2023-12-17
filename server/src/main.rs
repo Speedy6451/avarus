@@ -10,7 +10,7 @@ use rstar::{self, AABB};
 
 mod names;
 use names::Name;
-use tokio::{sync::{Mutex, RwLock, watch}, signal};
+use tokio::{sync::{Mutex, RwLock, watch::{self, Sender}}, signal};
 use serde::{Serialize, Deserialize};
 use const_format::formatcp;
 use hyper_util::rt::TokioIo;
@@ -116,14 +116,18 @@ async fn main() -> Result<(), Error> {
         .route("/flush", get(flush))
     .with_state(state.clone());
 
-    serve(server).await;
 
+    let server = serve(server).await;
+
+    println!("writing");
     write_to_disk(state).await?;
+
+    server.closed().await;
 
     Ok(())
 }
 
-async fn serve(serv: Router) {
+async fn serve(server: Router) -> Sender<()> {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:48228").await.unwrap();
 
     let (close_tx, close_rx) = watch::channel(());
@@ -139,7 +143,7 @@ async fn serve(serv: Router) {
             }
         };
 
-        let tower = serv.clone();
+        let tower = server.clone();
         let close_rx = close_rx.clone();
 
         tokio::spawn(async move {
@@ -175,7 +179,7 @@ async fn serve(serv: Router) {
 
     drop(listener);
 
-    close_tx.closed().await;
+    close_tx
 }
 
 async fn write_to_disk(state: SharedControl) -> anyhow::Result<()> {
@@ -259,13 +263,14 @@ async fn command(
     ) -> Json<TurtleCommand> {
     let mut state = &mut state.write().await;
 
+    println!("{:?}", &req);
+
     if id as usize > state.turtles.len() {
         return Json(TurtleCommand::Update);
     }
 
     Json(
         process_turtle_update(id, &mut state, req).unwrap_or(TurtleCommand::Update),
-        
     )
 }
 
@@ -317,9 +322,18 @@ fn process_turtle_update(
 
     if let Some(goal) = turtle.goal {
         // TODO: memoize this whenever we aren't digging
-        let route = route(turtle.position, goal, world);
+        let route = route(turtle.position, goal, world).unwrap();
         println!("route: {:?}", route);
-        let next_move = difference(route[0], route[1]).unwrap();
+        let mut next_move = difference(route[0], route[1]).unwrap();
+        if world.locate_at_point(&route[1].0.into()).is_some_and(|b| b.name != "minecraft:air") {
+            next_move = match next_move {
+                TurtleCommand::Up(_) => TurtleCommand::DigUp,
+                TurtleCommand::Down(_) => TurtleCommand::DigDown,
+                TurtleCommand::Forward(_) => TurtleCommand::Dig,
+                _ => next_move,
+                
+            }
+        }
         turtle.queued_movement = next_move.delta(turtle.position.1);
         match next_move {
             TurtleCommand::Left => turtle.position.1 = turtle.position.1.left(),
@@ -329,7 +343,7 @@ fn process_turtle_update(
         return Ok(next_move);
     }
 
-    Ok(TurtleCommand::Wait)
+    Ok(TurtleCommand::Wait(3))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -354,13 +368,13 @@ fn difference(from: Position, to: Position) -> Option<TurtleCommand> {
         }
     } else if to.1 == from.1 {
         if to.0 == from.0 + from.1.unit() {
-            Some(Forward)
+            Some(Forward(1))
         } else if to.0 == from.0 - from.1.unit() {
-            Some(Backward)
+            Some(Backward(1))
         } else if to.0 == from.0 + Vec3::y() {
-            Some(Up)
+            Some(Up(1))
         } else if to.0 == from.0 - Vec3::y() {
-            Some(Down)
+            Some(Down(1))
         } else {
             None
         }
@@ -395,41 +409,66 @@ enum TurtleMineMethod {
 
 #[derive(Serialize, Deserialize, Clone)]
 enum TurtleCommand {
-    Wait,
-    Forward,
-    Backward,
-    Up,
-    Down,
+    Wait(u32),
+    Forward(u32),
+    Backward(u32),
+    Up(u32),
+    Down(u32),
     Left,
     Right,
     Dig,
     DigUp,
     DigDown,
-    TakeInventory,
+    PlaceUp,
+    Place,
+    PlaceDown,
+    /// Count
+    DropFront(u32),
+    DropUp(u32),
+    DropDown(u32),
+    Select(u32),
+    /// Slot in inventory
+    ItemInfo(u32),
     Update,
     Poweroff,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct InventorySlot {
+    name: String,
+    count: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+enum TurtleCommandResponse {
+    None,
+    Success,
+    Failure,
+    Item(InventorySlot),
+    Inventory(Vec<InventorySlot>),
 }
 
 impl TurtleCommand {
    fn delta(&self, direction: Direction) -> Vec3 {
        let dir = direction.unit();
        match self {
-        TurtleCommand::Forward => dir,
-        TurtleCommand::Backward => -dir,
-        TurtleCommand::Up => Vec3::y(),
-        TurtleCommand::Down => -Vec3::y(),
+        TurtleCommand::Forward(count) => dir * *count as i32,
+        TurtleCommand::Backward(count) => -dir * *count as i32,
+        TurtleCommand::Up(count) => Vec3::y() * *count as i32,
+        TurtleCommand::Down(count) => -Vec3::y() * *count as i32,
         _ => Vec3::zeros(),
     }
    }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct TurtleUpdate {
     fuel: usize,
     /// Block name
     ahead: String,
     above: String,
     below: String,
+    ret: TurtleCommandResponse,
 }
 
 #[derive(Serialize, Deserialize)]

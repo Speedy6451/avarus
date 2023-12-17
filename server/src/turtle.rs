@@ -5,9 +5,15 @@ use crate::{blocks::{World, Block}, Position, Direction};
 
 use super::Vec3;
 
-pub fn route(from: Position, to: Position, world: &World) -> Vec<Position> {
+pub fn route(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
+    // attempt at not crashing by looking infinitely into the abyss
+    if world.locate_at_point(&to.0.into())
+        .is_some_and(|b| difficulty(&b.name).is_none()) {
+        return None;
+        
+    }
     let route = astar(&from, move |p| {next(p, world)} , |p1| {(p1.0 - &to.0).abs().sum() as u32}, |p| {p == &to}).unwrap();
-    route.0
+    Some(route.0)
 }
 
 fn next(from: &Position, world: &World) -> Vec<(Position, u32)> {
@@ -24,8 +30,8 @@ fn next(from: &Position, world: &World) -> Vec<(Position, u32)> {
     let ahead = from.0 + from.1.unit();
     insert(&mut vec, ahead, from.1, world, UNKNOWN);
 
-    let behind = from.0 - from.1.unit();
-    insert(&mut vec, behind, from.1, world, None);
+    //let behind = from.0 - from.1.unit();
+    //insert(&mut vec, behind, from.1, world, None);
     
     let above = from.0 + Vec3::y();
     insert(&mut vec, above, from.1, world,UNKNOWN);
@@ -37,10 +43,12 @@ fn next(from: &Position, world: &World) -> Vec<(Position, u32)> {
 }
 
 /// Blocks that are fine to tunnel through
-const GARBAGE: [&str; 3] = [
+const GARBAGE: [&str; 5] = [
     "minecraft:stone",
     "minecraft:dirt",
     "minecraft:andesite",
+    "minecraft:sand",
+    "minecraft:gravel",
 ];
 
 /// time taken to go through uncharted territory (in turtle. calls)
@@ -49,6 +57,6 @@ const UNKNOWN: Option<u32> = Some(2);
 // time to go somewhere
 fn difficulty(name: &str) -> Option<u32> {
     if name == "minecraft:air" { return Some(1) };
-    //if GARBAGE.contains(&name) { return Some(2)};
+    if GARBAGE.contains(&name) { return Some(2)};
     None
 }
