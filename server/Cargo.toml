@@ -13,7 +13,9 @@ const_format = "0.2.32"
 feistel_rs = "0.1.0"
 hyper = "1.0.1"
 hyper-util = "0.1.1"
-rstar = "0.11.0"
+nalgebra = { version = "0.32.3", features = ["serde-serialize"] }
+pathfinding = "4.6.0"
+rstar = { version = "0.11.0", features = ["serde"] }
 rustmatica = "0.1.1"
 serde = "1.0.193"
 serde_json = "1.0.108"

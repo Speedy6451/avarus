@@ -1,12 +1,13 @@
-use std::{env::args, sync::Arc, fs, io::ErrorKind};
+use std::{env::args, sync::Arc, fs, io::ErrorKind, collections::VecDeque};
 
 use axum::{
     routing::{get, post},
     Router, extract::{State, Path}, Json, http::{request, Request},
 };
-use anyhow::{Error, Ok};
-use rstar;
-use rustmatica::{BlockState, util::{UVec3, Vec3}};
+use anyhow::{Error, Ok, Context};
+use blocks::World;
+use rstar::{self, AABB};
+use rustmatica::{BlockState};
 
 mod names;
 use names::Name;
@@ -17,8 +18,16 @@ use const_format::formatcp;
 use hyper_util::rt::TokioIo;
 use tower::Service;
 use hyper::body::Incoming;
+use nalgebra::Vector3;
 
-#[derive(Serialize, Deserialize)]
+use crate::blocks::Block;
+mod blocks;
+
+mod turtle;
+
+pub type Vec3 = Vector3<i32>;
+
+#[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Eq, Copy)]
 enum Direction {
     North,
     South,
@@ -61,20 +70,21 @@ struct Turtle {
     /// movement vector of last given command
     queued_movement: Vec3,
     position: Vec3,
+    goal: Option<Vec3>,
     facing: Direction,
 }
 
 impl Turtle {
     fn new(id: u32, position: Vec3, facing: Direction, fuel: usize) -> Self {
-        Self { name: Name::from_num(id), fuel, queued_movement: Vec3::new(0, 0, 0), position, facing }
+        Self { name: Name::from_num(id), fuel, queued_movement: Vec3::new(0, 0, 0), position, goal: None, facing }
 
     }
 }
 
 #[derive(Serialize, Deserialize)]
 struct ControlState {
-    turtles: Vec<Turtle>
-    //world: unimplemented!(),
+    turtles: Vec<Turtle>,
+    world: blocks::World,
     //chunkloaders: unimplemented!(),
 }
 
@@ -89,7 +99,7 @@ async fn main() -> Result<(), Error> {
         },
         tokio::io::Result::Err(e) => match e.kind() {
             ErrorKind::NotFound => {
-                ControlState { turtles: Vec::new() }
+                ControlState { turtles:Vec::new(), world: World::new() }
             },
             _ => panic!()
         }
@@ -184,7 +194,7 @@ async fn create_turtle(
     Json(req): Json<TurtleRegister>,
     ) -> Json<TurtleResponse> {
     let turtles = &mut state.write().await.turtles;
-    let id = (turtles.len() + 1) as u32;
+    let id = turtles.len() as u32;
     turtles.push(Turtle::new(id, req.position, req.facing, req.fuel));
 
     println!("turt {id}");
@@ -197,12 +207,108 @@ async fn command(
     State(state): State<SharedControl>,
     Json(req): Json<TurtleUpdate>,
     ) -> Json<TurtleCommand> {
-    let turtles = &state.read().await.turtles;
-    println!("{id}");
-    println!("above: {}, below: {}, ahead: {}", req.above, req.below, req.ahead);
+    let mut state = &mut state.write().await;
+
+    if id as usize > state.turtles.len() {
+        return Json(TurtleCommand::Update);
+    }
+
+    Json(
+        process_turtle_update(id, &mut state, req).unwrap_or(TurtleCommand::Update),
+        
+    )
+}
+
+fn process_turtle_update(
+    id: u32,
+    state: &mut ControlState,
+    update: TurtleUpdate,
+    ) -> anyhow::Result<TurtleCommand> {
+    let turtle = state.turtles.get_mut(id as usize).context("nonexisting turtle")?;
+    let world = &mut state.world;
+
+    println!("above: {}, below: {}, ahead: {}", update.above, update.below, update.ahead);
+    if turtle.fuel != update.fuel {
+        turtle.fuel = update.fuel;
+
+        turtle.position += turtle.queued_movement;
+    }
+
+    world.insert(Block {
+        name: update.above,
+        pos: turtle.position + Vec3::new(0, 1, 0),
+    });
+
+    world.insert(Block {
+        name: update.ahead,
+        pos: turtle.position + turtle.facing.clone().unit(),
+    });
+
+    world.insert(Block {
+        name: update.below,
+        pos: turtle.position - turtle.facing.clone().unit(),
+    });
+
+    turtle.queued_movement = turtle.facing.clone().unit();
+
+    Ok(TurtleCommand::Wait)
+}
+
+#[derive(Serialize, Deserialize)]
+enum TurtleTask {
+    Mining(TurtleMineJob),
+    Idle,
+}
+
+type Position = (Vec3, Direction);
+
+/// Get a turtle command to map two adjacent positions
+fn difference(from: Position, to: Position) -> Option<TurtleCommand> {
+    use TurtleCommand::*;
+
+    if from.0 == to.0 {
+        if to.1 == from.1.left() {
+            Some(Left)
+        } else if to.1 == from.1.right() {
+            Some(Right)
+        } else {
+            None
+        }
+    } else if to.1 == from.1 {
+        if to.0 == from.0 + from.1.unit() {
+            Some(Forward)
+        } else if to.0 == from.0 - from.1.unit() {
+            Some(Backward)
+        } else {
+            None
+        }
+        
+    } else {
+        None
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct TurtleMineJobParams {
+    region: AABB<[i32;3]>,
+    to_mine: Vec<Vec3>,
+    method: TurtleMineMethod,
+    refuel: Position,
+    storage: Position,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TurtleMineJob {
+    to_mine: VecDeque<Vec3>,
+    mined: AABB<[i32;3]>,
+    params: TurtleMineJobParams,
+}
 
 
-    Json(TurtleCommand::Wait)
+#[derive(Serialize, Deserialize)]
+enum TurtleMineMethod {
+    Clear,
+    Strip,
 }
 
 #[derive(Serialize, Deserialize)]
