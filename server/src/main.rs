@@ -63,7 +63,7 @@ impl Direction {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct Turtle {
     name: Name,
     fuel: usize,
@@ -111,9 +111,10 @@ async fn main() -> Result<(), Error> {
         .route("/turtle/new", post(create_turtle))
         .route("/turtle/update/:id", post(command))
         .route("/turtle/client.lua", get(client))
-        .route("/turtle/control/:id/setGoal", post(set_goal))
+        .route("/turtle/setGoal/:id", post(set_goal))
+        .route("/turtle/info/:id", get(turtle_info))
+        .route("/turtle/updateAll", get(update_turtles))
         .route("/flush", get(flush))
-        .route("/updateTurtles", get(update_turtles))
     .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:48228").await.unwrap();
@@ -219,6 +220,15 @@ async fn update_turtles(
     ) -> &'static str {
     state.write().await.turtles.iter_mut().for_each(|t| t.pending_update = true);
     "ACK"
+}
+
+async fn turtle_info(
+    Path(id): Path<u32>,
+    State(state): State<SharedControl>,
+    ) -> Json<Turtle> {
+    let state = &mut state.read().await;
+
+    Json(state.turtles[id as usize].clone())
 }
 
 async fn command(
