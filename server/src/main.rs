@@ -115,7 +115,7 @@ async fn create_turtle(
 
     println!("turt {id}");
 
-    Json(TurtleResponse {name: Name::from_num(id).to_str(), id, command: TurtleCommand::Wait})
+    Json(TurtleResponse {name: Name::from_num(id).to_str(), id, command: TurtleCommand::Update})
 }
 
 async fn command(
@@ -125,9 +125,10 @@ async fn command(
     ) -> Json<TurtleCommand> {
     let turtles = &state.read().await.turtles;
     println!("{id}");
+    println!("above: {}, below: {}, ahead: {}", req.above, req.below, req.ahead);
 
 
-    Json(TurtleCommand::Update)
+    Json(TurtleCommand::Wait)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -152,6 +153,8 @@ struct TurtleUpdate {
     fuel: usize,
     /// Block name
     ahead: String,
+    above: String,
+    below: String,
 }
 
 #[derive(Serialize, Deserialize)]

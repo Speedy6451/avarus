@@ -1,4 +1,18 @@
+-- wget run http://68.46.126.104:48228/turtle/client.lua
+
 local ipaddr = "68.46.126.104"
+
+if not ipaddr then
+    if fs.exists("/disk/ip") then
+        local ipfile = fs.open("/disk/ip")
+        ipaddr = ipfile.readAll()
+        ipfile.close()
+    else
+        print("enter server ip:")
+        ipaddr = read("l")
+    end
+end
+
 local port = "48228"
 
 local endpoint = "http://" .. ipaddr .. ":" .. port
@@ -11,17 +25,18 @@ local backoff = 0;
 
 if not idfile then
     local fuel = turtle.getFuelLevel()
-    local stdin = io.input()
+    if fs.exists("/disk/pos") then
+        io.input("/disk/pos")
+    end
+    local startpos = io.input()
     print("Direction (North, South, East, West):")
-    local direction = stdin:read("l")
+    local direction = startpos:read("l")
     print("X:")
-    local x = tonumber(stdin:read("l"))
+    local x = tonumber(startpos:read("l"))
     print("Y:")
-    local x = tonumber(stdin:read("l"))
+    local y = tonumber(startpos:read("l"))
     print("Z:")
-    local x = tonumber(stdin:read("l"))
-    local y = tonumber(stdin:read("l"))
-    local z = tonumber(stdin:read("l"))
+    local z = tonumber(startpos:read("l"))
 
     local info = {
         fuel = fuel,
@@ -60,13 +75,26 @@ repeat
     elseif command == "Right" then
         turtle.right()
     elseif command == "Update" then
+        args = {...}
+        if args[1] == "nested" then
+            -- no exec = stack overflow
+            break
+        end
         local req = http.get(endpoint .. "/turtle/client.lua")
+        if not req then
+            os.reboot()
+        end
         local update = req.readAll()
         req.close()
+        fs.delete("startup-backup")
+        if fs.exists("/startup") then
+            -- pcall does not work with cc fs
+            fs.move("startup", "startup-backup")
+        end
         local startup = fs.open("startup", "w")
         startup.write(update)
         startup.close()
-        os.reboot()
+        shell.run("startup", "nested")
     end
 
     local ahead = "minecraft:air"
