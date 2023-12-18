@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub type World = RTree<Block>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Block {
     pub name: String,
     pub pos: Vec3,

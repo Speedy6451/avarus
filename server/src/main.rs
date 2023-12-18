@@ -35,6 +35,7 @@ mod turtle;
 #[derive(Serialize, Deserialize)]
 struct ControlState {
     turtles: Vec<turtle::Turtle>,
+    tasks: Vec<VecDeque<TurtleMineJob>>,
     world: blocks::World,
     //chunkloaders: unimplemented!(),
 }
@@ -53,6 +54,7 @@ async fn main() -> Result<(), Error> {
             ErrorKind::NotFound => ControlState {
                 turtles: Vec::new(),
                 world: World::new(),
+                tasks: Vec::new(),
             },
             _ => panic!(),
         },
@@ -97,9 +99,12 @@ async fn create_turtle(
     State(state): State<SharedControl>,
     Json(req): Json<turtle::TurtleRegister>,
 ) -> Json<turtle::TurtleResponse> {
-    let turtles = &mut state.write().await.turtles;
+    let state = &mut state.write().await;
+    let turtles = &mut state.turtles;
     let id = turtles.len() as u32;
     turtles.push(turtle::Turtle::new(id, req.position, req.facing, req.fuel));
+    state.tasks.push(VecDeque::new());
+    
 
     println!("turt {id}");
 
@@ -115,7 +120,7 @@ async fn set_goal(
     State(state): State<SharedControl>,
     Json(req): Json<Position>,
 ) -> &'static str {
-    state.write().await.turtles[id as usize].add_task(
+    state.write().await.tasks[id as usize].push_back(
         TurtleMineJob::chunk(req.0)
     );
 
@@ -139,8 +144,6 @@ async fn turtle_info(
     let state = &mut state.read().await;
     let turtle = &state.turtles[id as usize];
 
-    let tasks: VecDeque<Arc<dyn TurtleTask + Send + Sync>> = VecDeque::new();
-
     let cloned = turtle::Turtle {
         name: turtle.name.clone(),
         fuel: turtle.fuel,
@@ -148,7 +151,6 @@ async fn turtle_info(
         position: turtle.position.clone(),
         goal: turtle.goal.clone(),
         pending_update: turtle.pending_update,
-        tasks,
     };
 
     Json(cloned)

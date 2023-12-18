@@ -34,8 +34,6 @@ pub(crate) struct Turtle {
     pub(crate) position: Position,
     pub(crate) goal: Option<Iota>,
     pub(crate) pending_update: bool,
-    #[serde(skip)]
-    pub(crate) tasks: VecDeque<RwLock<Arc<dyn TurtleTask + Send + Sync>>>,
 }
 
 impl Default for Turtle {
@@ -47,7 +45,6 @@ impl Default for Turtle {
             position: (Vec3::zeros(), Direction::North),
             goal: Default::default(),
             pending_update: Default::default(),
-            tasks: VecDeque::new(),
         }
     }
 }
@@ -61,12 +58,7 @@ impl Turtle {
             position: (position, facing),
             goal: None,
             pending_update: true,
-            tasks: VecDeque::new(),
         }
-    }
-
-    pub fn add_task(&mut self, task: impl TurtleTask + Send + Sync) {
-        self.tasks.push_back(Arc::new(task));
     }
 }
 
@@ -79,6 +71,10 @@ pub(crate) fn process_turtle_update(
         .turtles
         .get_mut(id as usize)
         .context("nonexisting turtle")?;
+    let tasks = state
+        .tasks
+        .get_mut(id as usize)
+        .context("state gone?????").unwrap();
     let world = &mut state.world;
 
     if turtle.pending_update {
@@ -98,32 +94,32 @@ pub(crate) fn process_turtle_update(
         pos: turtle.position.0 + Vec3::y(),
     };
     world.remove_at_point(&above.pos.into());
-    world.insert(above);
+    world.insert(above.clone());
 
     let ahead = Block {
         name: update.ahead,
         pos: turtle.position.0 + turtle.position.1.clone().unit(),
     };
     world.remove_at_point(&ahead.pos.into());
-    world.insert(ahead);
+    world.insert(ahead.clone());
 
     let below = Block {
         name: update.below,
         pos: turtle.position.0 - Vec3::y(),
     };
     world.remove_at_point(&below.pos.into());
-    world.insert(below);
+    world.insert(below.clone());
 
-    if let Some(task) = turtle.tasks.front() {
+    if let Some(task) = tasks.front_mut() {
         task.handle_block(above);
         task.handle_block(below);
         task.handle_block(ahead);
     }
 
-    if let Some(goal) = turtle.tasks.front().map(|t| t.next(&turtle)) {
+    if let Some(goal) = tasks.front_mut().map(|t| t.next(&turtle)) {
          let command = match goal {
             Iota::End => {
-                turtle.tasks.pop_front();
+                tasks.pop_front();
                 TurtleCommand::Wait(0) // TODO: fix
             },
             Iota::Goto(pos) => {
@@ -143,6 +139,7 @@ pub(crate) fn process_turtle_update(
             },
         };
 
+         println!("Order: {:?}", command);
         return Ok(command);
     };
 
