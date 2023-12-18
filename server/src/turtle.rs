@@ -39,6 +39,10 @@ pub(crate) struct Turtle {
     pub(crate) pending_update: bool,
     #[serde(skip)]
     callback: Option<oneshot::Sender<TurtleUpdate>>,
+    #[serde(skip)]
+    sender: Option<Arc<Sender>>,
+    #[serde(skip)]
+    receiver: Option<Receiver>,
 }
 
 pub type Sender = mpsc::Sender<(Iota, oneshot::Sender<TurtleUpdate>)>;
@@ -51,9 +55,11 @@ impl Default for Turtle {
             fuel: Default::default(),
             queued_movement: Default::default(),
             position: (Vec3::zeros(), Direction::North),
-            goal: Default::default(),
+            goal: None,
             pending_update: Default::default(),
             callback: None,
+            sender: None,
+            receiver: None,
         }
     }
 }
@@ -65,10 +71,55 @@ impl Turtle {
             fuel,
             queued_movement: Vec3::new(0, 0, 0),
             position: (position, facing),
-            goal: None,
             pending_update: true,
-            callback: None,
+            ..Default::default()
+
         }
+    }
+
+    pub fn with_channel(id: u32, position: Vec3, facing: Direction, fuel: usize, sender: Sender, receiver: Receiver) -> Self {
+        Self {
+            name: Name::from_num(id),
+            fuel,
+            queued_movement: Vec3::new(0, 0, 0),
+            position: (position, facing),
+            pending_update: true,
+            sender: Some(Arc::new(sender)),
+            receiver: Some(receiver),
+            ..Default::default()
+
+        }
+    }
+
+    pub fn cmd(&self) -> TurtleCommander {
+        TurtleCommander { sender: self.sender.as_ref().unwrap().clone() }
+    }
+        
+}
+
+pub struct TurtleCommander {
+    sender: Arc<Sender>,
+}
+
+impl TurtleCommander {
+    pub async fn execute(&self, command: Iota) -> TurtleUpdate {
+        let (send, recv) = oneshot::channel::<TurtleUpdate>();
+
+        self.sender.to_owned().send((command,send)).await.unwrap();
+
+        recv.await.unwrap()
+    }
+
+    pub async fn command(&self, command: TurtleCommand) -> TurtleUpdate {
+        self.execute(Iota::Execute(command)).await
+    }
+
+    pub async fn goto(&self, pos: Position) -> TurtleUpdate {
+        self.execute(Iota::Goto(pos)).await
+    }
+
+    pub async fn mine(&self, pos: Vec3) -> TurtleUpdate {
+        self.execute(Iota::Mine(pos)).await
     }
 }
 
@@ -130,10 +181,12 @@ pub(crate) async fn process_turtle_update(
         send.send(update).unwrap();
     }
 
-    if let Some((cmd, ret)) = state.turtle_receivers.get(id as usize).unwrap().lock().await.try_recv().ok() {
-        turtle.callback = Some(ret);
+    if let Some(recv) = turtle.receiver.as_mut() {
+        if let Some((cmd, ret)) = recv.try_recv().ok() {
+            turtle.callback = Some(ret);
 
-        turtle.goal = Some(cmd);
+            turtle.goal = Some(cmd);
+        }
     }
 
     if let Some(goal) = turtle.goal.take().or_else(|| tasks.front_mut().map(|t| t.next(&turtle))) {

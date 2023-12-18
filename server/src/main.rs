@@ -21,7 +21,7 @@ use tokio::sync::{
     Mutex, RwLock, mpsc
 };
 use tower::Service;
-use turtle::{TurtleTask, Iota, Receiver, Sender, Turtle};
+use turtle::{TurtleTask, Iota, Receiver, Sender, Turtle, TurtleUpdate};
 
 use crate::{blocks::Block, paths::route};
 
@@ -42,8 +42,6 @@ struct SavedState {
 
 struct ControlState {
     saved: SavedState,
-    turtle_senders: Vec<Mutex<Sender>>,
-    turtle_receivers: Vec<Mutex<Receiver>>
 }
 
 type SharedControl = Arc<RwLock<ControlState>>;
@@ -66,10 +64,7 @@ async fn main() -> Result<(), Error> {
         },
     };
 
-    let state = ControlState { saved: state, turtle_senders: 
-        Vec::new()
-        , turtle_receivers: 
-        Vec::new()
+    let state = ControlState { saved: state,
     };
 
     let state = SharedControl::new(RwLock::new(state));
@@ -81,6 +76,7 @@ async fn main() -> Result<(), Error> {
         .route("/turtle/:id/setGoal", post(set_goal))
         .route("/turtle/:id/cancelTask", post(cancel))
         .route("/turtle/:id/info", get(turtle_info))
+        .route("/turtle/:id/placeUp", get(place_up))
         .route("/turtle/updateAll", get(update_turtles))
         .route("/flush", get(flush))
         .with_state(state.clone());
@@ -115,9 +111,7 @@ async fn create_turtle(
     let state = &mut state.write().await;
     let id = state.saved.turtles.len() as u32;
     let (send, receive) = mpsc::channel(1);
-    state.turtle_senders.push(Mutex::new(send));
-    state.turtle_receivers.push(Mutex::new(receive));
-    state.saved.turtles.push(turtle::Turtle::new(id, req.position, req.facing, req.fuel));
+    state.saved.turtles.push(turtle::Turtle::with_channel(id, req.position, req.facing, req.fuel, send,receive));
     state.saved.tasks.push(VecDeque::new());
     
 
@@ -128,6 +122,16 @@ async fn create_turtle(
         id,
         command: turtle::TurtleCommand::Update,
     })
+}
+
+async fn place_up(
+    Path(id): Path<u32>,
+    State(state): State<SharedControl>,
+) -> Json<TurtleUpdate> {
+    let turtle = state.write().await.saved.turtles.get(id as usize).unwrap()
+        .cmd();
+
+    Json(turtle.execute(Iota::Execute(turtle::TurtleCommand::PlaceUp)).await)
 }
 
 async fn set_goal(
