@@ -1,3 +1,19 @@
+local function refuel()
+    turtle.select(16)
+    turtle.dropUp()
+    while turtle.getFuelLevel() ~= turtle.getFuelLimit() do
+        turtle.suck()
+        turtle.refuel()
+    end
+end
+
+local function dump()
+    for i = 1, 16, 1 do
+        turtle.select(i)
+        turtle.drop()
+    end
+end
+
 local port = "48228"
 local endpoint = "http://" .. ipaddr .. ":" .. port
 
@@ -120,6 +136,10 @@ repeat
         ret = turtle.digDown()
     elseif command == "ItemInfo" then
         ret = { Item = turtle.getItemDetail(args) }
+    elseif command == "Refuel" then
+        refuel()
+    elseif command == "Dump" then
+        dump()
     elseif command == "Update" then
         if not update({...}) then
             break

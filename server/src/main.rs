@@ -8,6 +8,7 @@ use axum::{
     Json, Router,
 };
 use blocks::{World, Position};
+use mine::TurtleMineJob;
 use rstar::{self, AABB};
 
 use const_format::formatcp;
@@ -20,6 +21,7 @@ use tokio::sync::{
     Mutex, RwLock,
 };
 use tower::Service;
+use turtle::TurtleTask;
 
 use crate::{blocks::Block, paths::route};
 
@@ -113,7 +115,9 @@ async fn set_goal(
     State(state): State<SharedControl>,
     Json(req): Json<Position>,
 ) -> &'static str {
-    state.write().await.turtles[id as usize].goal = Some(req);
+    state.write().await.turtles[id as usize].add_task(
+        TurtleMineJob::chunk(req.0)
+    );
 
     "ACK"
 }
@@ -135,11 +139,7 @@ async fn turtle_info(
     let state = &mut state.read().await;
     let turtle = &state.turtles[id as usize];
 
-    let mut pseudomoves: VecDeque<turtle::TurtleCommand> = VecDeque::new();
-    turtle
-        .moves
-        .front()
-        .map(|m| pseudomoves.push_front(m.clone()));
+    let tasks: VecDeque<Arc<dyn TurtleTask + Send + Sync>> = VecDeque::new();
 
     let cloned = turtle::Turtle {
         name: turtle.name.clone(),
@@ -148,7 +148,7 @@ async fn turtle_info(
         position: turtle.position.clone(),
         goal: turtle.goal.clone(),
         pending_update: turtle.pending_update,
-        moves: pseudomoves,
+        tasks,
     };
 
     Json(cloned)

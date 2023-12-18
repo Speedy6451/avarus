@@ -10,14 +10,16 @@ anyhow = "1.0.75"
 axum = "0.7.2"
 bit-struct = "0.3.2"
 const_format = "0.2.32"
+erased-serde = "0.4.1"
 feistel_rs = "0.1.0"
+hilbert_index = "0.2.0"
 hyper = "1.0.1"
 hyper-util = "0.1.1"
 nalgebra = { version = "0.32.3", features = ["serde-serialize"] }
 pathfinding = "4.6.0"
 rstar = { version = "0.11.0", features = ["serde"] }
 rustmatica = "0.1.1"
-serde = "1.0.193"
+serde = { version = "1.0.193", features = ["rc"] }
 serde_json = "1.0.108"
 tokio = { version = "1.0", features = ["full"] }
 tower = { version = "0.4", features = ["util", "timeout", "load-shed", "limit"] }
@@ -31,3 +33,4 @@ tower-http = { version = "0.5.0", features = [
 tower-layer = "0.3.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+typetag = "0.2.14"

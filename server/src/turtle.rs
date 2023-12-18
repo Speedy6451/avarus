@@ -3,16 +3,19 @@ use crate::blocks::Block;
 use crate::blocks::Direction;
 use crate::blocks::Position;
 use crate::blocks::Vec3;
+use crate::blocks::nearest;
 use crate::mine::TurtleMineJob;
 
 use anyhow::Ok;
 
 use anyhow;
 use anyhow::Context;
+use tokio::sync::RwLock;
 
 use super::ControlState;
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 
 use super::names::Name;
@@ -29,9 +32,24 @@ pub(crate) struct Turtle {
     /// movement vector of last given command
     pub(crate) queued_movement: Vec3,
     pub(crate) position: Position,
-    pub(crate) goal: Option<Position>,
+    pub(crate) goal: Option<Iota>,
     pub(crate) pending_update: bool,
-    pub(crate) moves: VecDeque<TurtleCommand>,
+    #[serde(skip)]
+    pub(crate) tasks: VecDeque<RwLock<Arc<dyn TurtleTask + Send + Sync>>>,
+}
+
+impl Default for Turtle {
+    fn default() -> Self {
+        Self { 
+            name: Name::from_num(0),
+            fuel: Default::default(),
+            queued_movement: Default::default(),
+            position: (Vec3::zeros(), Direction::North),
+            goal: Default::default(),
+            pending_update: Default::default(),
+            tasks: VecDeque::new(),
+        }
+    }
 }
 
 impl Turtle {
@@ -43,8 +61,12 @@ impl Turtle {
             position: (position, facing),
             goal: None,
             pending_update: true,
-            moves: VecDeque::new(),
+            tasks: VecDeque::new(),
         }
+    }
+
+    pub fn add_task(&mut self, task: impl TurtleTask + Send + Sync) {
+        self.tasks.push_back(Arc::new(task));
     }
 }
 
@@ -64,10 +86,6 @@ pub(crate) fn process_turtle_update(
         return Ok(TurtleCommand::Update);
     }
 
-    println!(
-        "above: {}, below: {}, ahead: {}",
-        update.above, update.below, update.ahead
-    );
     if turtle.fuel != update.fuel {
         turtle.fuel = update.fuel;
 
@@ -96,45 +114,66 @@ pub(crate) fn process_turtle_update(
     world.remove_at_point(&below.pos.into());
     world.insert(below);
 
-    if turtle.goal.is_some_and(|g| g == turtle.position) {
-        turtle.goal = None;
+    if let Some(task) = turtle.tasks.front() {
+        task.handle_block(above);
+        task.handle_block(below);
+        task.handle_block(ahead);
     }
 
-    if let Some(goal) = turtle.goal {
-        // TODO: memoize this whenever we aren't digging
-        let route = route(turtle.position, goal, world).unwrap();
-        println!("route: {:?}", route);
-        let mut next_move = difference(route[0], route[1]).unwrap();
-        if world
-            .locate_at_point(&route[1].0.into())
-            .is_some_and(|b| b.name != "minecraft:air")
-        {
-            next_move = match next_move {
-                TurtleCommand::Up(_) => TurtleCommand::DigUp,
-                TurtleCommand::Down(_) => TurtleCommand::DigDown,
-                TurtleCommand::Forward(_) => TurtleCommand::Dig,
-                _ => next_move,
-            }
-        }
-        turtle.queued_movement = next_move.delta(turtle.position.1);
-        match next_move {
-            TurtleCommand::Left => turtle.position.1 = turtle.position.1.left(),
-            TurtleCommand::Right => turtle.position.1 = turtle.position.1.right(),
-            _ => {}
-        }
-        return Ok(next_move);
-    }
+    if let Some(goal) = turtle.tasks.front().map(|t| t.next(&turtle)) {
+         let command = match goal {
+            Iota::End => {
+                turtle.tasks.pop_front();
+                TurtleCommand::Wait(0) // TODO: fix
+            },
+            Iota::Goto(pos) => {
+                pathstep(turtle, world, pos).unwrap()
+            },
+            Iota::Mine(pos) => {
+                let pos = nearest(turtle.position.0, pos);
+                
+                if pos == turtle.position {
+                    TurtleCommand::Dig
+                } else {
+                    pathstep(turtle, world, pos).unwrap()
+                }
+            },
+            Iota::Execute(cmd) => {
+                cmd
+            },
+        };
+
+        return Ok(command);
+    };
 
     Ok(TurtleCommand::Wait(3))
 }
 
-#[derive(Serialize, Deserialize)]
-pub(crate) enum TurtleTask {
-    Mining(TurtleMineJob),
-    Idle,
+fn pathstep(turtle: &mut Turtle, world: &mut rstar::RTree<Block>, goal: Position) -> Option<TurtleCommand> {
+    // TODO: memoize this whenever we aren't digging
+    let route = route(turtle.position, goal, world)?;
+    let mut next_move = difference(route[0], route[1])?;
+    if world
+        .locate_at_point(&route[1].0.into())
+        .is_some_and(|b| b.name != "minecraft:air")
+    {
+        next_move = match next_move {
+            TurtleCommand::Up(_) => TurtleCommand::DigUp,
+            TurtleCommand::Down(_) => TurtleCommand::DigDown,
+            TurtleCommand::Forward(_) => TurtleCommand::Dig,
+            _ => next_move,
+        }
+    }
+    turtle.queued_movement = next_move.delta(turtle.position.1);
+    match next_move {
+        TurtleCommand::Left => turtle.position.1 = turtle.position.1.left(),
+        TurtleCommand::Right => turtle.position.1 = turtle.position.1.right(),
+        _ => {}
+    }
+    return Some(next_move);
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub(crate) enum TurtleCommand {
     Wait(u32),
     Forward(u32),
@@ -158,6 +197,8 @@ pub(crate) enum TurtleCommand {
     ItemInfo(u32),
     Update,
     Poweroff,
+    Refuel,
+    Dump,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -240,3 +281,19 @@ fn difference(from: Position, to: Position) -> Option<TurtleCommand> {
         None
     }
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub enum Iota {
+    End,
+    Goto(Position),
+    Mine(Vec3),
+    Execute(TurtleCommand),
+}
+
+pub trait TurtleTask: erased_serde::Serialize {
+    fn handle_block(&mut self, _: Block) { }
+    fn next(&mut self, turtle: &Turtle) -> Iota
+    { Iota::End }
+}
+
+erased_serde::serialize_trait_object!(TurtleTask);

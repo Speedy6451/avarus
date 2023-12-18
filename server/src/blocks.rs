@@ -62,3 +62,26 @@ impl Direction {
         }
     }
 }
+
+/// closest valid state to the given point from where you are
+pub fn nearest(from: Vec3, to: Vec3) -> Position {
+    let diff = to.xz()-from.xz();
+    
+    let dir = if diff.x.abs() > diff.y.abs() {
+        if diff.x > 0 {
+            Direction::East
+        } else {
+            Direction::West
+        }
+    } else {
+        if diff.y > 0 {
+            Direction::South
+        } else {
+            Direction::South
+        }
+    };
+    (
+        to - dir.unit(),
+        dir
+    )
+}
