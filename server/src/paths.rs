@@ -58,12 +58,13 @@ fn next(from: &Position, world: &World) -> Vec<(Position, u32)> {
 }
 
 /// Blocks that are fine to tunnel through
-const GARBAGE: [&str; 5] = [
+const GARBAGE: [&str; 6] = [
     "minecraft:stone",
     "minecraft:dirt",
     "minecraft:andesite",
     "minecraft:sand",
     "minecraft:gravel",
+    "minecraft:sandstone",
 ];
 
 /// time taken to go through uncharted territory (in turtle. calls)

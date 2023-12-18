@@ -18,10 +18,10 @@ use names::Name;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
     watch::{self},
-    Mutex, RwLock,
+    Mutex, RwLock, mpsc
 };
 use tower::Service;
-use turtle::TurtleTask;
+use turtle::{TurtleTask, Iota, Receiver, Sender, Turtle};
 
 use crate::{blocks::Block, paths::route};
 
@@ -33,11 +33,17 @@ mod safe_kill;
 mod turtle;
 
 #[derive(Serialize, Deserialize)]
-struct ControlState {
+struct SavedState {
     turtles: Vec<turtle::Turtle>,
     tasks: Vec<VecDeque<TurtleMineJob>>,
     world: blocks::World,
     //chunkloaders: unimplemented!(),
+}
+
+struct ControlState {
+    saved: SavedState,
+    turtle_senders: Vec<Mutex<Sender>>,
+    turtle_receivers: Vec<Mutex<Receiver>>
 }
 
 type SharedControl = Arc<RwLock<ControlState>>;
@@ -51,13 +57,19 @@ async fn main() -> Result<(), Error> {
     {
         tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
         tokio::io::Result::Err(e) => match e.kind() {
-            ErrorKind::NotFound => ControlState {
+            ErrorKind::NotFound => SavedState {
                 turtles: Vec::new(),
                 world: World::new(),
                 tasks: Vec::new(),
             },
             _ => panic!(),
         },
+    };
+
+    let state = ControlState { saved: state, turtle_senders: 
+        Vec::new()
+        , turtle_receivers: 
+        Vec::new()
     };
 
     let state = SharedControl::new(RwLock::new(state));
@@ -67,6 +79,7 @@ async fn main() -> Result<(), Error> {
         .route("/turtle/:id/update", post(command))
         .route("/turtle/client.lua", get(client))
         .route("/turtle/:id/setGoal", post(set_goal))
+        .route("/turtle/:id/cancelTask", post(cancel))
         .route("/turtle/:id/info", get(turtle_info))
         .route("/turtle/updateAll", get(update_turtles))
         .route("/flush", get(flush))
@@ -84,7 +97,7 @@ async fn main() -> Result<(), Error> {
 
 
 async fn write_to_disk(state: SharedControl) -> anyhow::Result<()> {
-    let json = serde_json::to_string_pretty(&(*state.read().await))?;
+    let json = serde_json::to_string_pretty(&state.read().await.saved)?;
     tokio::fs::write("state.json", json).await?;
     Ok(())
 }
@@ -100,13 +113,15 @@ async fn create_turtle(
     Json(req): Json<turtle::TurtleRegister>,
 ) -> Json<turtle::TurtleResponse> {
     let state = &mut state.write().await;
-    let turtles = &mut state.turtles;
-    let id = turtles.len() as u32;
-    turtles.push(turtle::Turtle::new(id, req.position, req.facing, req.fuel));
-    state.tasks.push(VecDeque::new());
+    let id = state.saved.turtles.len() as u32;
+    let (send, receive) = mpsc::channel(1);
+    state.turtle_senders.push(Mutex::new(send));
+    state.turtle_receivers.push(Mutex::new(receive));
+    state.saved.turtles.push(turtle::Turtle::new(id, req.position, req.facing, req.fuel));
+    state.saved.tasks.push(VecDeque::new());
     
 
-    println!("turt {id}");
+    println!("new turtle: {id}");
 
     Json(turtle::TurtleResponse {
         name: Name::from_num(id).to_str(),
@@ -120,9 +135,18 @@ async fn set_goal(
     State(state): State<SharedControl>,
     Json(req): Json<Position>,
 ) -> &'static str {
-    state.write().await.tasks[id as usize].push_back(
+    state.write().await.saved.tasks[id as usize].push_back(
         TurtleMineJob::chunk(req.0)
     );
+
+    "ACK"
+}
+
+async fn cancel(
+    Path(id): Path<u32>,
+    State(state): State<SharedControl>,
+) -> &'static str {
+    state.write().await.saved.tasks[id as usize].pop_front();
 
     "ACK"
 }
@@ -131,7 +155,7 @@ async fn update_turtles(State(state): State<SharedControl>) -> &'static str {
     state
         .write()
         .await
-        .turtles
+        .saved.turtles
         .iter_mut()
         .for_each(|t| t.pending_update = true);
     "ACK"
@@ -142,16 +166,14 @@ async fn turtle_info(
     State(state): State<SharedControl>,
 ) -> Json<turtle::Turtle> {
     let state = &mut state.read().await;
-    let turtle = &state.turtles[id as usize];
+    let turtle = &state.saved.turtles[id as usize];
 
-    let cloned = turtle::Turtle {
-        name: turtle.name.clone(),
-        fuel: turtle.fuel,
-        queued_movement: turtle.queued_movement.clone(),
-        position: turtle.position.clone(),
-        goal: turtle.goal.clone(),
-        pending_update: turtle.pending_update,
-    };
+    let cloned = Turtle::new( 
+        turtle.name.to_num(),
+        turtle.position.to_owned().0,
+        turtle.position.to_owned().1,
+        turtle.fuel
+    );
 
     Json(cloned)
 }
@@ -165,12 +187,12 @@ async fn command(
 
     println!("{:?}", &req);
 
-    if id as usize > state.turtles.len() {
+    if id as usize > state.saved.turtles.len() {
         return Json(turtle::TurtleCommand::Update);
     }
 
     Json(
-        turtle::process_turtle_update(id, &mut state, req).unwrap_or(turtle::TurtleCommand::Update),
+        turtle::process_turtle_update(id, &mut state, req).await.unwrap_or(turtle::TurtleCommand::Update),
     )
 }
 

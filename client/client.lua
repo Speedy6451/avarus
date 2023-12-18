@@ -146,6 +146,8 @@ repeat
         end
     end
 
+    command = nil
+
     local ret_table = nil
     if type(ret) == "boolean" then
         if ret then

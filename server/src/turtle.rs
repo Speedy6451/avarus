@@ -11,10 +11,13 @@ use anyhow::Ok;
 use anyhow;
 use anyhow::Context;
 use tokio::sync::RwLock;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 use super::ControlState;
 
 use std::collections::VecDeque;
+use std::future::Ready;
 use std::sync::Arc;
 
 
@@ -34,7 +37,12 @@ pub(crate) struct Turtle {
     pub(crate) position: Position,
     pub(crate) goal: Option<Iota>,
     pub(crate) pending_update: bool,
+    #[serde(skip)]
+    callback: Option<oneshot::Sender<TurtleUpdate>>,
 }
+
+pub type Sender = mpsc::Sender<(Iota, oneshot::Sender<TurtleUpdate>)>;
+pub type Receiver = mpsc::Receiver<(Iota, oneshot::Sender<TurtleUpdate>)>;
 
 impl Default for Turtle {
     fn default() -> Self {
@@ -45,6 +53,7 @@ impl Default for Turtle {
             position: (Vec3::zeros(), Direction::North),
             goal: Default::default(),
             pending_update: Default::default(),
+            callback: None,
         }
     }
 }
@@ -58,24 +67,25 @@ impl Turtle {
             position: (position, facing),
             goal: None,
             pending_update: true,
+            callback: None,
         }
     }
 }
 
-pub(crate) fn process_turtle_update(
+pub(crate) async fn process_turtle_update(
     id: u32,
     state: &mut ControlState,
     update: TurtleUpdate,
 ) -> anyhow::Result<TurtleCommand> {
     let turtle = state
-        .turtles
+        .saved.turtles
         .get_mut(id as usize)
         .context("nonexisting turtle")?;
     let tasks = state
-        .tasks
+        .saved.tasks
         .get_mut(id as usize)
         .context("state gone?????").unwrap();
-    let world = &mut state.world;
+    let world = &mut state.saved.world;
 
     if turtle.pending_update {
         turtle.pending_update = false;
@@ -90,21 +100,21 @@ pub(crate) fn process_turtle_update(
     }
 
     let above = Block {
-        name: update.above,
+        name: update.above.clone(),
         pos: turtle.position.0 + Vec3::y(),
     };
     world.remove_at_point(&above.pos.into());
     world.insert(above.clone());
 
     let ahead = Block {
-        name: update.ahead,
+        name: update.ahead.clone(),
         pos: turtle.position.0 + turtle.position.1.clone().unit(),
     };
     world.remove_at_point(&ahead.pos.into());
     world.insert(ahead.clone());
 
     let below = Block {
-        name: update.below,
+        name: update.below.clone(),
         pos: turtle.position.0 - Vec3::y(),
     };
     world.remove_at_point(&below.pos.into());
@@ -116,13 +126,24 @@ pub(crate) fn process_turtle_update(
         task.handle_block(ahead);
     }
 
-    if let Some(goal) = tasks.front_mut().map(|t| t.next(&turtle)) {
+    if let Some(send) = turtle.callback.take() {
+        send.send(update).unwrap();
+    }
+
+    if let Some((cmd, ret)) = state.turtle_receivers.get(id as usize).unwrap().lock().await.try_recv().ok() {
+        turtle.callback = Some(ret);
+
+        turtle.goal = Some(cmd);
+    }
+
+    if let Some(goal) = turtle.goal.take().or_else(|| tasks.front_mut().map(|t| t.next(&turtle))) {
          let command = match goal {
             Iota::End => {
                 tasks.pop_front();
                 TurtleCommand::Wait(0) // TODO: fix
             },
             Iota::Goto(pos) => {
+                println!("gogto: {:?}", pos);
                 pathstep(turtle, world, pos).unwrap()
             },
             Iota::Mine(pos) => {
