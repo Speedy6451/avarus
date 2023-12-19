@@ -70,6 +70,8 @@ if not idfile then
     local fuel = turtle.getFuelLevel()
     if fs.exists("/disk/pos") then
         io.input("/disk/pos")
+    else
+        io.input(io.stdin)
     end
     local startpos = io.input()
     print("Direction (North, South, East, West):")

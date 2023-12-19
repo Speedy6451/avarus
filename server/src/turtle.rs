@@ -1,4 +1,5 @@
 
+use crate::SharedControl;
 use crate::blocks::Block;
 use crate::blocks::Direction;
 use crate::blocks::Position;
@@ -6,6 +7,7 @@ use crate::blocks::Vec3;
 use crate::blocks::World;
 use crate::blocks::nearest;
 use crate::mine::TurtleMineJob;
+use crate::paths::route_facing;
 
 use anyhow::Ok;
 
@@ -124,19 +126,25 @@ impl Turtle {
 
         }
     }
-
-    pub fn cmd(&self) -> TurtleCommander {
-        TurtleCommander { sender: self.sender.as_ref().unwrap().clone() }
-    }
-        
 }
 
 #[derive(Clone)]
 pub struct TurtleCommander {
     sender: Arc<Sender>,
+    world: World,
+    turtle: Arc<RwLock<Turtle>>,
 }
 
 impl TurtleCommander {
+    pub async fn new(turtle: Name, state: &LiveState) -> Option<TurtleCommander> {
+        let turtle = state.turtles.get(turtle.to_num() as usize)?.clone();
+        Some(TurtleCommander { 
+            sender:turtle.clone().read().await.sender.as_ref().unwrap().clone(),
+            world: state.world.clone(),
+            turtle,
+        })
+    }
+
     pub async fn execute(&self, command: TurtleCommand) -> TurtleInfo {
         let (send, recv) = oneshot::channel::<TurtleInfo>();
 
@@ -144,43 +152,85 @@ impl TurtleCommander {
 
         recv.await.unwrap()
     }
-}
 
-pub async fn goto(cmd: TurtleCommander, recent: TurtleInfo, pos: Position, world: World) -> Option<()> {
-    let mut recent = recent.pos;
-    loop {
-        if recent == pos {
-            break;
-        }
+    pub async fn pos(&self) -> Position {
+        self.turtle.read().await.position
+    }
 
-        let route = route(recent, pos, &world).await?;
+    pub async fn fuel(&self) -> usize {
+        self.turtle.read().await.fuel
+    }
 
-        let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| from.difference(**to).unwrap()).collect();
+    pub async fn world(&self) -> World {
+        self.world.clone()
+    }
 
-        'route: for (next_position, command) in route.into_iter().skip(1).zip(steps) {
-            // reroute if the goal point is not empty before moving
-            // valid routes will explicitly tell you to break ground
-
-            if world.occupied(next_position.pos).await {
-                break 'route;
+    pub async fn goto(&self, pos: Position) -> Option<()> {
+        let mut recent = self.pos().await;
+        let world = self.world.clone();
+        loop {
+            if recent == pos {
+                break;
             }
 
-            let state = cmd.execute(command).await;
-            recent = state.pos;
+            let route = route(recent, pos, &world).await?;
+
+            let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| from.difference(**to).unwrap()).collect();
+
+            'route: for (next_position, command) in route.into_iter().skip(1).zip(steps) {
+                // reroute if the goal point is not empty before moving
+                // valid routes will explicitly tell you to break ground
+
+                if world.occupied(next_position.pos).await {
+                    break 'route;
+                }
+
+                let state = self.execute(command).await;
+                recent = state.pos;
+            }
         }
+        Some(())
     }
-    Some(())
+
+    pub async fn goto_adjacent(&self, pos: Vec3) -> Option<Position> {
+        let mut recent = self.pos().await;
+        let world = self.world.clone();
+        loop {
+            
+            if pos == recent.dir.unit() + recent.pos {
+                break;
+            }
+
+            let route = route_facing(recent, pos, &world).await?;
+
+            let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| from.difference(**to).unwrap()).collect();
+
+            'route: for (next_position, command) in route.into_iter().skip(1).zip(steps) {
+                // reroute if the goal point is not empty before moving
+                // valid routes will explicitly tell you to break ground
+
+                if world.occupied(next_position.pos).await {
+                    break 'route;
+                }
+
+                let state = self.execute(command).await;
+                recent = state.pos;
+            }
+        }
+        Some(recent)
+    }
 }
+
 
 pub(crate) async fn process_turtle_update(
     id: u32,
     state: &mut LiveState,
     update: TurtleUpdate,
 ) -> anyhow::Result<TurtleCommand> {
-    let turtle = state
+    let mut  turtle = state
         .turtles
         .get_mut(id as usize)
-        .context("nonexisting turtle")?;
+        .context("nonexisting turtle")?.write().await;
     let tasks = state
         .tasks
         .get_mut(id as usize)
@@ -193,9 +243,14 @@ pub(crate) async fn process_turtle_update(
     }
 
     if turtle.fuel != update.fuel {
+        let diff = turtle.fuel - update.fuel;
         turtle.fuel = update.fuel;
 
-        turtle.position.pos += turtle.queued_movement;
+        if diff > 0 {
+            let delta = turtle.queued_movement * diff as i32;
+
+            turtle.position.pos += delta;
+        }
         turtle.queued_movement = Vec3::zeros();
     }
 
@@ -232,6 +287,7 @@ pub(crate) async fn process_turtle_update(
                 TurtleCommand::Right => turtle.position.dir = turtle.position.dir.right(),
                 _ => {}
             }
+            turtle.queued_movement = cmd.unit(turtle.position.dir);
             return Ok(cmd);
         }
     }
@@ -290,6 +346,17 @@ impl TurtleCommand {
             TurtleCommand::Backward(count) => -dir * *count as i32,
             TurtleCommand::Up(count) => Vec3::y() * *count as i32,
             TurtleCommand::Down(count) => -Vec3::y() * *count as i32,
+            _ => Vec3::zeros(),
+        }
+    }
+
+    pub(crate) fn unit(&self, direction: Direction) -> Vec3 {
+        let dir = direction.unit();
+        match self {
+            TurtleCommand::Forward(_) => dir,
+            TurtleCommand::Backward(_) => -dir,
+            TurtleCommand::Up(_) => Vec3::y(),
+            TurtleCommand::Down(_) => -Vec3::y(),
             _ => Vec3::zeros(),
         }
     }

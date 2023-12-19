@@ -23,7 +23,7 @@ use tokio::sync::{
     Mutex, RwLock, mpsc
 };
 use tower::Service;
-use turtle::{TurtleTask, Iota, Receiver, Sender, Turtle, TurtleUpdate, TurtleInfo, goto, TurtleCommand};
+use turtle::{TurtleTask, Iota, Receiver, Sender, Turtle, TurtleUpdate, TurtleInfo, TurtleCommand, TurtleCommander};
 
 use crate::{blocks::Block, paths::route};
 
@@ -42,23 +42,26 @@ struct SavedState {
 }
 
 struct LiveState {
-    turtles: Vec<turtle::Turtle>,
+    turtles: Vec<Arc<RwLock<turtle::Turtle>>>,
     tasks: Vec<VecDeque<TurtleMineJob>>,
     world: blocks::World,
 }
 
 impl LiveState {
-    async fn to_save(self) -> SavedState {
-        SavedState { turtles: self.turtles, world: self.world.to_tree().await }
-    }
-
     async fn save(&self) -> SavedState {
-        let turtles = self.turtles.iter().map(|t| t.info());
-        SavedState { turtles: turtles.collect(), world: self.world.tree().await }
+        let mut turtles = Vec::new();
+        for turtle in self.turtles.iter() {
+            turtles.push(turtle.read().await.info());
+        };
+        SavedState { turtles, world: self.world.tree().await }
     }
 
     fn from_save(save: SavedState) -> Self {
-        Self { turtles: save.turtles, tasks: Vec::new(), world: World::from_tree(save.world) }
+        Self { turtles: save.turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: Vec::new(), world: World::from_tree(save.world) }
+    }
+
+    async fn get_turtle(&self, name: u32) -> Option<TurtleCommander> {
+        TurtleCommander::new(Name::from_num(name), self).await
     }
     
 }
@@ -128,7 +131,10 @@ async fn create_turtle(
     let state = &mut state.write().await;
     let id = state.turtles.len() as u32;
     let (send, receive) = mpsc::channel(1);
-    state.turtles.push(turtle::Turtle::with_channel(id, Position::new(req.position, req.facing), req.fuel, send,receive));
+    state.turtles.push(
+        Arc::new(RwLock::new(
+            turtle::Turtle::with_channel(id, Position::new(req.position, req.facing), req.fuel, send,receive)
+    )));
     state.tasks.push(VecDeque::new());
     
 
@@ -145,11 +151,26 @@ async fn place_up(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
 ) -> Json<TurtleInfo> {
-    let turtle = state.read().await.turtles.get(id as usize).unwrap()
-        .cmd();
+    let turtle = state.read().await.get_turtle(id).await.unwrap();
     let response = turtle.execute(turtle::TurtleCommand::PlaceUp).await;
 
     Json(response)
+}
+
+async fn dig(
+    Path(id): Path<u32>,
+    State(state): State<SharedControl>,
+    Json(req): Json<Position>,
+) -> &'static str {
+    let turtle = state.read().await.get_turtle(id).await.unwrap();
+    tokio::spawn(
+        async move {
+            turtle.goto_adjacent(req.pos).await;
+            turtle.execute(TurtleCommand::Dig).await
+        }
+    );
+
+    "ACK"
 }
 
 async fn set_goal(
@@ -157,11 +178,8 @@ async fn set_goal(
     State(state): State<SharedControl>,
     Json(req): Json<Position>,
 ) -> &'static str {
-    let state = state.read().await;
-    let turtle = state.turtles[id as usize].cmd();
-    let info = turtle.execute(TurtleCommand::Wait(0)).await;
-
-    tokio::spawn(goto(turtle.clone(), info, req, state.world.clone()));
+    let turtle = state.read().await.get_turtle(id).await.unwrap();
+    tokio::spawn(async move {turtle.goto(req).await});
 
     "ACK"
 }
@@ -176,12 +194,10 @@ async fn cancel(
 }
 
 async fn update_turtles(State(state): State<SharedControl>) -> &'static str {
-    state
-        .write()
-        .await
-        .turtles
-        .iter_mut()
-        .for_each(|t| t.pending_update = true);
+    for turtle in state .write().await.turtles.iter_mut() {
+            turtle.write().await.pending_update = true;
+    }
+
     "ACK"
 }
 
@@ -190,7 +206,7 @@ async fn turtle_info(
     State(state): State<SharedControl>,
 ) -> Json<turtle::Turtle> {
     let state = &mut state.read().await;
-    let turtle = &state.turtles[id as usize];
+    let turtle = &state.turtles[id as usize].read().await;
 
     let cloned = Turtle::new( 
         turtle.name.to_num(),
@@ -215,7 +231,8 @@ async fn command(
     }
 
     Json(
-        turtle::process_turtle_update(id, &mut state, req).await.unwrap_or(turtle::TurtleCommand::Update),
+        turtle::process_turtle_update(id, &mut state, req).await
+        .unwrap_or(turtle::TurtleCommand::Update),
     )
 }
 

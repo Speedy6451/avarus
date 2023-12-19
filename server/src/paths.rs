@@ -5,12 +5,12 @@ use crate::{
 };
 use pathfinding::prelude::astar;
 
-pub async fn route_facing(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
+pub async fn route_facing(from: Position, to: Vec3, world: &World) -> Option<Vec<Position>> {
     let facing = |p: &Position| {
         let ahead = p.dir.unit() + p.pos;
-        to.pos == ahead
+        to == ahead
     };
-    route_to(from, to.pos, facing, world).await
+    route_to(from, to, facing, world).await
 }
 
 pub async fn route(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
