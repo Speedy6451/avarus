@@ -1,3 +1,5 @@
+#![feature(iter_map_windows)]
+
 use std::{collections::VecDeque, io::ErrorKind, sync::Arc};
 
 use anyhow::{Context, Error, Ok};
@@ -21,7 +23,7 @@ use tokio::sync::{
     Mutex, RwLock, mpsc
 };
 use tower::Service;
-use turtle::{TurtleTask, Iota, Receiver, Sender, Turtle, TurtleUpdate};
+use turtle::{TurtleTask, Iota, Receiver, Sender, Turtle, TurtleUpdate, TurtleInfo};
 
 use crate::{blocks::Block, paths::route};
 
@@ -127,11 +129,11 @@ async fn create_turtle(
 async fn place_up(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
-) -> Json<TurtleUpdate> {
+) -> Json<TurtleInfo> {
     let turtle = state.write().await.saved.turtles.get(id as usize).unwrap()
         .cmd();
 
-    Json(turtle.execute(Iota::Execute(turtle::TurtleCommand::PlaceUp)).await)
+    Json(turtle.execute(turtle::TurtleCommand::PlaceUp).await)
 }
 
 async fn set_goal(
@@ -139,9 +141,10 @@ async fn set_goal(
     State(state): State<SharedControl>,
     Json(req): Json<Position>,
 ) -> &'static str {
-    state.write().await.saved.tasks[id as usize].push_back(
-        TurtleMineJob::chunk(req.0)
-    );
+    state.read().await.saved.turtles[id as usize].cmd().goto(req).await;
+    //state.write().await.saved.tasks[id as usize].push_back(
+    //    TurtleMineJob::chunk(req.0)
+    //);
 
     "ACK"
 }

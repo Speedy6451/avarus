@@ -12,10 +12,12 @@ bit-struct = "0.3.2"
 const_format = "0.2.32"
 erased-serde = "0.4.1"
 feistel_rs = "0.1.0"
+future-parking_lot = "0.3.3"
 hilbert_index = "0.2.0"
 hyper = "1.0.1"
 hyper-util = "0.1.1"
 nalgebra = { version = "0.32.3", features = ["serde-serialize"] }
+parking_lot = { version = "0.11", features = ["serde"] }
 pathfinding = "4.6.0"
 rstar = { version = "0.11.0", features = ["serde"] }
 rustmatica = "0.1.1"

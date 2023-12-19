@@ -38,15 +38,34 @@ pub(crate) struct Turtle {
     pub(crate) goal: Option<Iota>,
     pub(crate) pending_update: bool,
     #[serde(skip)]
-    callback: Option<oneshot::Sender<TurtleUpdate>>,
+    callback: Option<oneshot::Sender<TurtleInfo>>,
     #[serde(skip)]
     sender: Option<Arc<Sender>>,
     #[serde(skip)]
     receiver: Option<Receiver>,
 }
 
-pub type Sender = mpsc::Sender<(Iota, oneshot::Sender<TurtleUpdate>)>;
-pub type Receiver = mpsc::Receiver<(Iota, oneshot::Sender<TurtleUpdate>)>;
+#[derive(Debug)]
+pub struct TurtleInfo {
+    pub name: Name,
+    pub pos: Position,
+    pub fuel: usize,
+    /// Block name
+    pub ahead: String,
+    pub above: String,
+    pub below: String,
+    pub ret: TurtleCommandResponse,
+}
+
+impl TurtleInfo {
+    fn from_update(update: TurtleUpdate, name: Name, pos: Position) -> Self {
+        Self { name, pos,
+        fuel: update.fuel, ahead: update.ahead, above: update.above, below: update.below, ret: update.ret }
+    }
+}
+
+pub type Sender = mpsc::Sender<(TurtleCommand, oneshot::Sender<TurtleInfo>)>;
+pub type Receiver = mpsc::Receiver<(TurtleCommand, oneshot::Sender<TurtleInfo>)>;
 
 impl Default for Turtle {
     fn default() -> Self {
@@ -102,25 +121,40 @@ pub struct TurtleCommander {
 }
 
 impl TurtleCommander {
-    pub async fn execute(&self, command: Iota) -> TurtleUpdate {
-        let (send, recv) = oneshot::channel::<TurtleUpdate>();
+    pub async fn execute(&self, command: TurtleCommand) -> TurtleInfo {
+        let (send, recv) = oneshot::channel::<TurtleInfo>();
 
         self.sender.to_owned().send((command,send)).await.unwrap();
 
         recv.await.unwrap()
     }
+}
 
-    pub async fn command(&self, command: TurtleCommand) -> TurtleUpdate {
-        self.execute(Iota::Execute(command)).await
-    }
+async fn goto(cmd: &TurtleCommander, recent: TurtleInfo, pos: Position, world: &rstar::RTree<Block>) -> Option<()> {
+    let mut recent = recent.pos;
+    loop {
+        if recent == pos {
+            break;
+        }
 
-    pub async fn goto(&self, pos: Position) -> TurtleUpdate {
-        self.execute(Iota::Goto(pos)).await
-    }
+        let route = route(recent, pos, world)?;
 
-    pub async fn mine(&self, pos: Vec3) -> TurtleUpdate {
-        self.execute(Iota::Mine(pos)).await
+        let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| difference(**from,**to).unwrap()).collect();
+
+        'route: for (next_position, command) in route.into_iter().skip(1).zip(steps) {
+            // reroute if the goal point is not empty before moving
+            // valid routes will explicitly tell you to break ground
+
+            if world.locate_at_point(&next_position.0.into()).unwrap().name != "minecraft:air" {
+                break 'route;
+            }
+
+            let state = cmd.execute(command).await;
+            recent = state.pos;
+            
+        }
     }
+    Some(())
 }
 
 pub(crate) async fn process_turtle_update(
@@ -171,21 +205,17 @@ pub(crate) async fn process_turtle_update(
     world.remove_at_point(&below.pos.into());
     world.insert(below.clone());
 
-    if let Some(task) = tasks.front_mut() {
-        task.handle_block(above);
-        task.handle_block(below);
-        task.handle_block(ahead);
-    }
+    let info = TurtleInfo::from_update(update, turtle.name.clone(), turtle.position.clone());
 
     if let Some(send) = turtle.callback.take() {
-        send.send(update).unwrap();
+        send.send(info).unwrap();
     }
 
     if let Some(recv) = turtle.receiver.as_mut() {
         if let Some((cmd, ret)) = recv.try_recv().ok() {
             turtle.callback = Some(ret);
 
-            turtle.goal = Some(cmd);
+            return Ok(cmd);
         }
     }
 
