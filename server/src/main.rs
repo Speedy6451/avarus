@@ -57,7 +57,12 @@ impl LiveState {
     }
 
     fn from_save(save: SavedState) -> Self {
-        Self { turtles: save.turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: Vec::new(), world: World::from_tree(save.world) }
+        let mut turtles = Vec::new();
+        for turtle in save.turtles.into_iter() {
+            let (tx, rx) = mpsc::channel(1);
+            turtles.push(Turtle::with_channel(turtle.name.to_num(), turtle.position, turtle.fuel, tx, rx));
+        };
+        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: Vec::new(), world: World::from_tree(save.world) }
     }
 
     async fn get_turtle(&self, name: u32) -> Option<TurtleCommander> {

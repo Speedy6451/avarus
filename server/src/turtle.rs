@@ -17,12 +17,14 @@ use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::channel;
+use tokio::time::timeout;
 
 use super::LiveState;
 
 use std::collections::VecDeque;
 use std::future::Ready;
 use std::sync::Arc;
+use std::time::Duration;
 
 
 use super::names::Name;
@@ -31,6 +33,11 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use super::paths::route;
+
+/// Time (ms) to wait for a command before letting a turtle go idle
+const COMMAND_TIMEOUT:  u64 = 0o372;
+/// Time (s) between turtle polls when idle
+const IDLE_TIME: u32 = 3;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Turtle {
@@ -139,7 +146,7 @@ impl TurtleCommander {
     pub async fn new(turtle: Name, state: &LiveState) -> Option<TurtleCommander> {
         let turtle = state.turtles.get(turtle.to_num() as usize)?.clone();
         Some(TurtleCommander { 
-            sender:turtle.clone().read().await.sender.as_ref().unwrap().clone(),
+            sender: turtle.clone().read().await.sender.as_ref().unwrap().clone(),
             world: state.world.clone(),
             turtle,
         })
@@ -231,10 +238,6 @@ pub(crate) async fn process_turtle_update(
         .turtles
         .get_mut(id as usize)
         .context("nonexisting turtle")?.write().await;
-    let tasks = state
-        .tasks
-        .get_mut(id as usize)
-        .context("state gone?????").unwrap();
     let world = &mut state.world;
 
     if turtle.pending_update {
@@ -279,7 +282,8 @@ pub(crate) async fn process_turtle_update(
     }
 
     if let Some(recv) = turtle.receiver.as_mut() {
-        if let Some((cmd, ret)) = recv.try_recv().ok() {
+        let next = timeout(Duration::from_millis(COMMAND_TIMEOUT), recv.recv());
+        if let Some((cmd, ret)) = next.await.ok().flatten() {
             turtle.callback = Some(ret);
 
             match cmd {
@@ -292,7 +296,7 @@ pub(crate) async fn process_turtle_update(
         }
     }
 
-    Ok(TurtleCommand::Wait(3))
+    Ok(TurtleCommand::Wait(IDLE_TIME))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
