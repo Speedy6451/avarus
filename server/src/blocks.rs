@@ -1,8 +1,43 @@
+use std::{sync::Arc, ops::Index};
+
 use nalgebra::Vector3;
 use rstar::{self, PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
+use tokio::sync::{RwLock, RwLockReadGuard, OwnedRwLockReadGuard};
 
-pub type World = RTree<Block>;
+use crate::turtle::TurtleCommand;
+
+pub type WorldReadLock = OwnedRwLockReadGuard<RTree<Block>>;
+
+#[derive(Clone)]
+pub struct World {
+    state: Arc<RwLock<RTree<Block>>>, // interior mutability to get around the 
+                                      // questionable architecture of this project
+}
+
+impl World {
+    pub fn new() -> Self { Self { state: Arc::new(RwLock::new(RTree::new())) } }
+    pub fn from_tree(tree: RTree<Block>) -> Self { Self { state: Arc::new(RwLock::new(tree)) } }
+    pub async fn to_tree(self) -> RTree<Block> { self.state.write().await.to_owned() }
+    pub async fn tree(&self) -> RTree<Block> { self.state.read().await.clone() }
+
+    pub async fn get(&self, block: Vec3) -> Option<Block> {
+        self.state.read().await.locate_at_point(&block.into()).map(|b| b.to_owned())
+    }
+
+    pub async fn set(&self, block: Block) {
+        self.state.write().await.remove_at_point(&block.pos.into());
+        self.state.write().await.insert(block);
+    }
+
+    pub async fn occupied(&self, block: Vec3) -> bool {
+        self.state.read().await.locate_at_point(&block.into()).is_some_and(|b| b.name != "minecraft:air")
+    }
+
+    pub async fn lock(self) -> WorldReadLock {
+        self.state.read_owned().await
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Block {
@@ -25,7 +60,46 @@ impl PointDistance for Block {
 }
 
 pub type Vec3 = Vector3<i32>;
-pub type Position = (Vec3, Direction);
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct Position {
+    pub pos: Vec3,
+    pub dir: Direction,
+}
+
+impl Position {
+    pub fn new(pos: Vec3, dir: Direction) -> Self { Self { pos, dir } }
+
+    /// Get a turtle command to map two adjacent positions
+    pub fn difference(self, to: Position) -> Option<TurtleCommand> {
+        use crate::turtle::TurtleCommand::*;
+
+        if self.pos == to.pos {
+            if to.dir == self.dir.left() {
+                Some(Left)
+            } else if to.dir == self.dir.right() {
+                Some(Right)
+            } else {
+                None
+            }
+        } else if to.dir == self.dir {
+            if to.pos == self.pos + self.dir.unit() {
+                Some(Forward(1))
+            } else if to.pos == self.pos - self.dir.unit() {
+                Some(Backward(1))
+            } else if to.pos == self.pos + Vec3::y() {
+                Some(Up(1))
+            } else if to.pos == self.pos - Vec3::y() {
+                Some(Down(1))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+}
 
 #[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Eq, Copy, Debug)]
 pub enum Direction {
@@ -80,8 +154,8 @@ pub fn nearest(from: Vec3, to: Vec3) -> Position {
             Direction::South
         }
     };
-    (
-        to - dir.unit(),
+    Position {
+        pos: to - dir.unit(),
         dir
-    )
+    }
 }

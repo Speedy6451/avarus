@@ -1,58 +1,62 @@
 use std::rc::Rc;
 
 use crate::{
-    blocks::{Block, World, Position, Direction, Vec3},
+    blocks::{Block, World, Position, Direction, Vec3, WorldReadLock},
 };
 use pathfinding::prelude::astar;
 
 
-pub fn route(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
+pub async fn route(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
+    // lock once, we'll be doing a lot of lookups
+    let world = world.clone().lock().await;
+
     // attempt at not crashing by looking infinitely into the abyss
     if world
-        .locate_at_point(&to.0.into())
+        .locate_at_point(&to.pos.into())
         .is_some_and(|b| difficulty(&b.name).is_none())
     {
         return None;
     }
     let route = astar(
         &from,
-        move |p| next(p, world),
-        |p1| (p1.0 - &to.0).abs().sum() as u32,
+        move |p| next(p, &world),
+        |p1| (p1.pos - &to.pos).abs().sum() as u32,
         |p| p == &to,
     )
     .unwrap();
     Some(route.0)
 }
 
-fn next(from: &Position, world: &World) -> Vec<(Position, u32)> {
+fn next(from: &Position, world: &WorldReadLock) -> Vec<(Position, u32)> {
     let mut vec: Vec<(Position, u32)> = Vec::new();
-    vec.push(((from.0, from.1.left()), 1));
-    vec.push(((from.0, from.1.right()), 1));
 
     fn insert(
         vec: &mut Vec<(Position, u32)>,
         point: Vec3,
         orientation: Direction,
-        world: &World,
+        world: &WorldReadLock,
         unknown: Option<u32>,
     ) {
         world
             .locate_at_point(&point.into())
             .map_or(unknown, |b| difficulty(&b.name))
-            .map(|d| vec.push(((point, orientation), d)));
+            .map(|d| vec.push((Position::new(point, orientation), d)));
     }
 
-    let ahead = from.0 + from.1.unit();
-    insert(&mut vec, ahead, from.1, world, UNKNOWN);
+    vec.push((Position::new(from.pos, from.dir.left()), 1));
+    vec.push((Position::new(from.pos, from.dir.right()), 1));
 
-    //let behind = from.0 - from.1.unit();
-    //insert(&mut vec, behind, from.1, world, None);
+    let ahead = from.pos + from.dir.unit();
+    insert(&mut vec, ahead, from.dir, world, UNKNOWN);
 
-    let above = from.0 + Vec3::y();
-    insert(&mut vec, above, from.1, world, UNKNOWN);
+    //let behind = from.pos - from.dir.unit();
+    //insert(&mut vec, behind, from.dir, world, None);
 
-    let below = from.0 - Vec3::y();
-    insert(&mut vec, below, from.1, world, UNKNOWN);
+    let above = from.pos + Vec3::y();
+    insert(&mut vec, above, from.dir, world, UNKNOWN);
+
+    let below = from.pos - Vec3::y();
+    insert(&mut vec, below, from.dir, world, UNKNOWN);
 
     vec
 }

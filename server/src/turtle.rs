@@ -3,6 +3,7 @@ use crate::blocks::Block;
 use crate::blocks::Direction;
 use crate::blocks::Position;
 use crate::blocks::Vec3;
+use crate::blocks::World;
 use crate::blocks::nearest;
 use crate::mine::TurtleMineJob;
 
@@ -13,8 +14,9 @@ use anyhow::Context;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::sync::oneshot::channel;
 
-use super::ControlState;
+use super::LiveState;
 
 use std::collections::VecDeque;
 use std::future::Ready;
@@ -69,39 +71,52 @@ pub type Receiver = mpsc::Receiver<(TurtleCommand, oneshot::Sender<TurtleInfo>)>
 
 impl Default for Turtle {
     fn default() -> Self {
+        let (sender, receiver) = mpsc::channel(1);
         Self { 
             name: Name::from_num(0),
             fuel: Default::default(),
             queued_movement: Default::default(),
-            position: (Vec3::zeros(), Direction::North),
+            position: Position::new(Vec3::zeros(), Direction::North),
             goal: None,
             pending_update: Default::default(),
             callback: None,
-            sender: None,
-            receiver: None,
+            sender: Some(Arc::new(sender)),
+            receiver: Some(receiver),
         }
     }
 }
 
 impl Turtle {
-    pub(crate) fn new(id: u32, position: Vec3, facing: Direction, fuel: usize) -> Self {
+    pub(crate) fn new(id: u32, position: Position, fuel: usize) -> Self {
         Self {
             name: Name::from_num(id),
             fuel,
             queued_movement: Vec3::new(0, 0, 0),
-            position: (position, facing),
+            position,
             pending_update: true,
             ..Default::default()
 
         }
     }
 
-    pub fn with_channel(id: u32, position: Vec3, facing: Direction, fuel: usize, sender: Sender, receiver: Receiver) -> Self {
+    /// Similar turtle for serialization
+    pub fn info(&self) -> Self {
+        Self {
+            name: self.name,
+            fuel: self.fuel,
+            position: self.position,
+            pending_update: self.pending_update,
+            queued_movement: self.queued_movement,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_channel(id: u32, position: Position, fuel: usize, sender: Sender, receiver: Receiver) -> Self {
         Self {
             name: Name::from_num(id),
             fuel,
             queued_movement: Vec3::new(0, 0, 0),
-            position: (position, facing),
+            position,
             pending_update: true,
             sender: Some(Arc::new(sender)),
             receiver: Some(receiver),
@@ -116,6 +131,7 @@ impl Turtle {
         
 }
 
+#[derive(Clone)]
 pub struct TurtleCommander {
     sender: Arc<Sender>,
 }
@@ -130,28 +146,27 @@ impl TurtleCommander {
     }
 }
 
-async fn goto(cmd: &TurtleCommander, recent: TurtleInfo, pos: Position, world: &rstar::RTree<Block>) -> Option<()> {
+pub async fn goto(cmd: TurtleCommander, recent: TurtleInfo, pos: Position, world: World) -> Option<()> {
     let mut recent = recent.pos;
     loop {
         if recent == pos {
             break;
         }
 
-        let route = route(recent, pos, world)?;
+        let route = route(recent, pos, &world).await?;
 
-        let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| difference(**from,**to).unwrap()).collect();
+        let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| from.difference(**to).unwrap()).collect();
 
         'route: for (next_position, command) in route.into_iter().skip(1).zip(steps) {
             // reroute if the goal point is not empty before moving
             // valid routes will explicitly tell you to break ground
 
-            if world.locate_at_point(&next_position.0.into()).unwrap().name != "minecraft:air" {
+            if world.occupied(next_position.pos).await {
                 break 'route;
             }
 
             let state = cmd.execute(command).await;
             recent = state.pos;
-            
         }
     }
     Some(())
@@ -159,18 +174,18 @@ async fn goto(cmd: &TurtleCommander, recent: TurtleInfo, pos: Position, world: &
 
 pub(crate) async fn process_turtle_update(
     id: u32,
-    state: &mut ControlState,
+    state: &mut LiveState,
     update: TurtleUpdate,
 ) -> anyhow::Result<TurtleCommand> {
     let turtle = state
-        .saved.turtles
+        .turtles
         .get_mut(id as usize)
         .context("nonexisting turtle")?;
     let tasks = state
-        .saved.tasks
+        .tasks
         .get_mut(id as usize)
         .context("state gone?????").unwrap();
-    let world = &mut state.saved.world;
+    let world = &mut state.world;
 
     if turtle.pending_update {
         turtle.pending_update = false;
@@ -180,30 +195,27 @@ pub(crate) async fn process_turtle_update(
     if turtle.fuel != update.fuel {
         turtle.fuel = update.fuel;
 
-        turtle.position.0 += turtle.queued_movement;
+        turtle.position.pos += turtle.queued_movement;
         turtle.queued_movement = Vec3::zeros();
     }
 
     let above = Block {
         name: update.above.clone(),
-        pos: turtle.position.0 + Vec3::y(),
+        pos: turtle.position.pos + Vec3::y(),
     };
-    world.remove_at_point(&above.pos.into());
-    world.insert(above.clone());
+    world.set(above.clone()).await;
 
     let ahead = Block {
         name: update.ahead.clone(),
-        pos: turtle.position.0 + turtle.position.1.clone().unit(),
+        pos: turtle.position.pos + turtle.position.dir.unit(),
     };
-    world.remove_at_point(&ahead.pos.into());
-    world.insert(ahead.clone());
+    world.set(ahead.clone()).await;
 
     let below = Block {
         name: update.below.clone(),
-        pos: turtle.position.0 - Vec3::y(),
+        pos: turtle.position.pos - Vec3::y(),
     };
-    world.remove_at_point(&below.pos.into());
-    world.insert(below.clone());
+    world.set(below.clone()).await;
 
     let info = TurtleInfo::from_update(update, turtle.name.clone(), turtle.position.clone());
 
@@ -215,63 +227,16 @@ pub(crate) async fn process_turtle_update(
         if let Some((cmd, ret)) = recv.try_recv().ok() {
             turtle.callback = Some(ret);
 
+            match cmd {
+                TurtleCommand::Left => turtle.position.dir = turtle.position.dir.left(),
+                TurtleCommand::Right => turtle.position.dir = turtle.position.dir.right(),
+                _ => {}
+            }
             return Ok(cmd);
         }
     }
 
-    if let Some(goal) = turtle.goal.take().or_else(|| tasks.front_mut().map(|t| t.next(&turtle))) {
-         let command = match goal {
-            Iota::End => {
-                tasks.pop_front();
-                TurtleCommand::Wait(0) // TODO: fix
-            },
-            Iota::Goto(pos) => {
-                println!("gogto: {:?}", pos);
-                pathstep(turtle, world, pos).unwrap()
-            },
-            Iota::Mine(pos) => {
-                let pos = nearest(turtle.position.0, pos);
-                
-                if pos == turtle.position {
-                    TurtleCommand::Dig
-                } else {
-                    pathstep(turtle, world, pos).unwrap()
-                }
-            },
-            Iota::Execute(cmd) => {
-                cmd
-            },
-        };
-
-         println!("Order: {:?}", command);
-        return Ok(command);
-    };
-
     Ok(TurtleCommand::Wait(3))
-}
-
-fn pathstep(turtle: &mut Turtle, world: &mut rstar::RTree<Block>, goal: Position) -> Option<TurtleCommand> {
-    // TODO: memoize this whenever we aren't digging
-    let route = route(turtle.position, goal, world)?;
-    let mut next_move = difference(route[0], route[1])?;
-    if world
-        .locate_at_point(&route[1].0.into())
-        .is_some_and(|b| b.name != "minecraft:air")
-    {
-        next_move = match next_move {
-            TurtleCommand::Up(_) => TurtleCommand::DigUp,
-            TurtleCommand::Down(_) => TurtleCommand::DigDown,
-            TurtleCommand::Forward(_) => TurtleCommand::Dig,
-            _ => next_move,
-        }
-    }
-    turtle.queued_movement = next_move.delta(turtle.position.1);
-    match next_move {
-        TurtleCommand::Left => turtle.position.1 = turtle.position.1.left(),
-        TurtleCommand::Right => turtle.position.1 = turtle.position.1.right(),
-        _ => {}
-    }
-    return Some(next_move);
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -352,35 +317,6 @@ pub(crate) struct TurtleResponse {
     pub(crate) name: String,
     pub(crate) id: u32,
     pub(crate) command: TurtleCommand,
-}
-
-/// Get a turtle command to map two adjacent positions
-fn difference(from: Position, to: Position) -> Option<TurtleCommand> {
-    use TurtleCommand::*;
-
-    if from.0 == to.0 {
-        if to.1 == from.1.left() {
-            Some(Left)
-        } else if to.1 == from.1.right() {
-            Some(Right)
-        } else {
-            None
-        }
-    } else if to.1 == from.1 {
-        if to.0 == from.0 + from.1.unit() {
-            Some(Forward(1))
-        } else if to.0 == from.0 - from.1.unit() {
-            Some(Backward(1))
-        } else if to.0 == from.0 + Vec3::y() {
-            Some(Up(1))
-        } else if to.0 == from.0 - Vec3::y() {
-            Some(Down(1))
-        } else {
-            None
-        }
-    } else {
-        None
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
