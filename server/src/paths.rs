@@ -1,18 +1,30 @@
 use std::rc::Rc;
 
 use crate::{
-    blocks::{Block, World, Position, Direction, Vec3, WorldReadLock},
+    blocks::{Block, World, Position, Direction, Vec3, WorldReadLock}, turtle::TurtleCommand,
 };
 use pathfinding::prelude::astar;
 
+pub async fn route_facing(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
+    let facing = |p: &Position| {
+        let ahead = p.dir.unit() + p.pos;
+        to.pos == ahead
+    };
+    route_to(from, to.pos, facing, world).await
+}
 
 pub async fn route(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
+    route_to(from, to.pos, |p| p == &to, world).await
+}
+
+async fn route_to<D>(from: Position, to: Vec3, done: D, world: &World) -> Option<Vec<Position>>
+where D: FnMut(&Position) -> bool {
     // lock once, we'll be doing a lot of lookups
     let world = world.clone().lock().await;
 
     // attempt at not crashing by looking infinitely into the abyss
     if world
-        .locate_at_point(&to.pos.into())
+        .locate_at_point(&to.into())
         .is_some_and(|b| difficulty(&b.name).is_none())
     {
         return None;
@@ -20,8 +32,8 @@ pub async fn route(from: Position, to: Position, world: &World) -> Option<Vec<Po
     let route = astar(
         &from,
         move |p| next(p, &world),
-        |p1| (p1.pos - &to.pos).abs().sum() as u32,
-        |p| p == &to,
+        |p1| (p1.pos - &to).abs().sum() as u32,
+        done,
     )
     .unwrap();
     Some(route.0)
