@@ -8,7 +8,9 @@ use pathfinding::prelude::astar;
 pub async fn route_facing(from: Position, to: Vec3, world: &World) -> Option<Vec<Position>> {
     let facing = |p: &Position| {
         let ahead = p.dir.unit() + p.pos;
-        to == ahead
+        let above = Vec3::y() + p.pos;
+        let below = -Vec3::y() + p.pos;
+        to == ahead || to == below || to == above
     };
     route_to(from, to, facing, world).await
 }
@@ -87,7 +89,7 @@ const GARBAGE: [&str; 6] = [
 const UNKNOWN: Option<u32> = Some(2);
 
 // time to go somewhere
-fn difficulty(name: &str) -> Option<u32> {
+pub fn difficulty(name: &str) -> Option<u32> {
     if name == "minecraft:air" {
         return Some(1);
     };

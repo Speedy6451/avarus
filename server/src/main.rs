@@ -9,7 +9,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use blocks::{World, Position};
+use blocks::{World, Position, Vec3};
 use mine::TurtleMineJob;
 use rstar::{self, AABB, RTree};
 
@@ -100,6 +100,7 @@ async fn main() -> Result<(), Error> {
         .route("/turtle/:id/update", post(command))
         .route("/turtle/client.lua", get(client))
         .route("/turtle/:id/setGoal", post(set_goal))
+        .route("/turtle/:id/dig", post(dig))
         .route("/turtle/:id/cancelTask", post(cancel))
         .route("/turtle/:id/info", get(turtle_info))
         //.route("/turtle/:id/placeUp", get(place_up))
@@ -165,13 +166,13 @@ async fn place_up(
 async fn dig(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
-    Json(req): Json<Position>,
+    Json(req): Json<Vec3>,
 ) -> &'static str {
     let turtle = state.read().await.get_turtle(id).await.unwrap();
     tokio::spawn(
         async move {
-            turtle.goto_adjacent(req.pos).await;
-            turtle.execute(TurtleCommand::Dig).await
+            let pos = turtle.goto_adjacent(req).await.unwrap();
+            turtle.execute(pos.dig(req).unwrap()).await
         }
     );
 

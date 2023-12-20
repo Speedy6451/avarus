@@ -7,6 +7,7 @@ use crate::blocks::Vec3;
 use crate::blocks::World;
 use crate::blocks::nearest;
 use crate::mine::TurtleMineJob;
+use crate::paths;
 use crate::paths::route_facing;
 
 use anyhow::Ok;
@@ -217,10 +218,19 @@ impl TurtleCommander {
                 // valid routes will explicitly tell you to break ground
 
                 if world.occupied(next_position.pos).await {
-                    break 'route;
+                    if world.garbage(next_position.pos).await {
+                        self.execute(dbg!(recent.dig(next_position.pos))?).await;
+                    } else {
+                        break 'route;
+                    }
                 }
 
                 let state = self.execute(command).await;
+
+                if let TurtleCommandResponse::Failure =  state.ret {
+                    break 'route;
+                }
+
                 recent = state.pos;
             }
         }
@@ -292,6 +302,7 @@ pub(crate) async fn process_turtle_update(
                 _ => {}
             }
             turtle.queued_movement = cmd.unit(turtle.position.dir);
+            println!("Turtle {}: {cmd:?}", turtle.name.to_str());
             return Ok(cmd);
         }
     }

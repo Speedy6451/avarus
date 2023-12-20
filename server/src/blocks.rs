@@ -5,7 +5,7 @@ use rstar::{self, PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, RwLockReadGuard, OwnedRwLockReadGuard};
 
-use crate::turtle::TurtleCommand;
+use crate::{turtle::TurtleCommand, paths};
 
 pub type WorldReadLock = OwnedRwLockReadGuard<RTree<Block>>;
 
@@ -34,12 +34,17 @@ impl World {
         self.state.read().await.locate_at_point(&block.into()).is_some_and(|b| b.name != "minecraft:air")
     }
 
+    /// Returns true if a "garbage" block exists at the given point which you are free to destroy
+    pub async fn garbage(&self, block: Vec3) -> bool {
+        self.state.read().await.locate_at_point(&block.into()).is_some_and(|b| paths::difficulty(&b.name).is_some())
+    }
+
     pub async fn lock(self) -> WorldReadLock {
         self.state.read_owned().await
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Block {
     pub name: String,
     pub pos: Vec3,
@@ -98,6 +103,26 @@ impl Position {
             None
         }
     }
+
+    /// Command to dig 
+    /// Assumes that "to" can be dug from your position
+    pub fn dig(&self, to: Vec3) -> Option<TurtleCommand> {
+
+        // manhattan distance of 1 required to dig
+        if (self.pos-to).abs().sum()!=1 {
+            return None;
+        }
+
+        // not covered: pointing away from to
+
+        Some(match self.pos.y - to.y {
+            0 => TurtleCommand::Dig,
+            1 => TurtleCommand::DigDown,
+            -1 => TurtleCommand::DigUp,
+            _ => None?
+        })
+    }
+
 
 }
 
