@@ -60,7 +60,7 @@ impl LiveState {
         let mut turtles = Vec::new();
         for turtle in save.turtles.into_iter() {
             let (tx, rx) = mpsc::channel(1);
-            turtles.push(Turtle::with_channel(turtle.name.to_num(), turtle.position, turtle.fuel, tx, rx));
+            turtles.push(Turtle::with_channel(turtle.name.to_num(), turtle.position, turtle.fuel, turtle.fuel_limit, tx, rx));
         };
         Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: Vec::new(), world: World::from_tree(save.world) }
     }
@@ -139,7 +139,7 @@ async fn create_turtle(
     let (send, receive) = mpsc::channel(1);
     state.turtles.push(
         Arc::new(RwLock::new(
-            turtle::Turtle::with_channel(id, Position::new(req.position, req.facing), req.fuel, send,receive)
+            turtle::Turtle::with_channel(id, Position::new(req.position, req.facing), req.fuel, req.fuellimit, send,receive)
     )));
     state.tasks.push(VecDeque::new());
     

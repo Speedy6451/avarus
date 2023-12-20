@@ -44,6 +44,7 @@ const IDLE_TIME: u32 = 3;
 pub(crate) struct Turtle {
     pub(crate) name: Name,
     pub(crate) fuel: usize,
+    pub(crate) fuel_limit: usize,
     /// movement vector of last given command
     pub(crate) queued_movement: Vec3,
     pub(crate) position: Position,
@@ -85,6 +86,7 @@ impl Default for Turtle {
         Self { 
             name: Name::from_num(0),
             fuel: Default::default(),
+            fuel_limit: Default::default(),
             queued_movement: Default::default(),
             position: Position::new(Vec3::zeros(), Direction::North),
             goal: None,
@@ -121,10 +123,11 @@ impl Turtle {
         }
     }
 
-    pub fn with_channel(id: u32, position: Position, fuel: usize, sender: Sender, receiver: Receiver) -> Self {
+    pub fn with_channel(id: u32, position: Position, fuel: usize, fuel_limit: usize, sender: Sender, receiver: Receiver) -> Self {
         Self {
             name: Name::from_num(id),
             fuel,
+            fuel_limit,
             queued_movement: Vec3::new(0, 0, 0),
             position,
             pending_update: true,
@@ -167,6 +170,10 @@ impl TurtleCommander {
 
     pub async fn fuel(&self) -> usize {
         self.turtle.read().await.fuel
+    }
+
+    pub async fn fuel_limit(&self) -> usize {
+        self.turtle.read().await.fuel_limit
     }
 
     pub async fn world(&self) -> World {
@@ -392,6 +399,7 @@ pub(crate) struct TurtleUpdate {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct TurtleRegister {
     pub(crate) fuel: usize,
+    pub(crate) fuellimit: usize,
     pub(crate) position: Vec3,
     pub(crate) facing: Direction,
 }

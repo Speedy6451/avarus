@@ -25,18 +25,13 @@ local function update()
     return true
 end
 
-local function cycle(func, n)
-    for i = 1, n, 1 do
-        if not func() then
-            return false
-        end
-    end
-    return true
-end
-
 local function cyclefn(fn)
     return function (n)
-        cycle(fn, n)
+        for i = 1, n, 1 do
+            if not fn() then
+                return false
+            end
+        end
     end
 end
 
@@ -96,6 +91,7 @@ local backoff = 0;
 
 if not idfile then
     local fuel = turtle.getFuelLevel()
+    local maxfuel = turtle.getFuelLimit()
     if fs.exists("/disk/pos") then
         io.input("/disk/pos")
     else
@@ -113,15 +109,21 @@ if not idfile then
 
     local info = {
         fuel = fuel,
+        fuellimit = maxfuel,
         position = {x, y, z},
         facing = direction,
     }
-    -- TODO: get from boot floppy
+    ::request::
     local turtleinfo = http.post(
         endpoint .. "/turtle/new",
         textutils.serializeJSON(info),
         { ["Content-Type"] = "application/json" }
     )
+    if not turtleinfo then
+        print("server not responding")
+        sleep(1)
+        goto request
+    end
     local response = textutils.unserialiseJSON(turtleinfo.readAll())
 
     idfile = fs.open("id", "w")
@@ -161,11 +163,9 @@ repeat
         else
             ret_table = "Failure"
         end
-    else
+    elseif ret then
         ret_table = ret
-    end
-
-    if not ret_table then
+    else
         ret_table = "None"
     end
 
