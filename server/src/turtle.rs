@@ -25,6 +25,7 @@ use super::LiveState;
 use std::collections::VecDeque;
 use std::future::Ready;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
 
 
@@ -143,16 +144,24 @@ impl Turtle {
 pub struct TurtleCommander {
     sender: Arc<Sender>,
     world: World,
-    turtle: Arc<RwLock<Turtle>>,
+    // everything below is best-effort
+    // TODO: make not bad
+    pos: Arc<RwLock<Position>>,
+    fuel: Arc<AtomicUsize>,
+    max_fuel: Arc<AtomicUsize>,
+    
 }
 
 impl TurtleCommander {
     pub async fn new(turtle: Name, state: &LiveState) -> Option<TurtleCommander> {
         let turtle = state.turtles.get(turtle.to_num() as usize)?.clone();
+        let turtle = turtle.read().await;
         Some(TurtleCommander { 
-            sender: turtle.clone().read().await.sender.as_ref().unwrap().clone(),
+            sender: turtle.sender.as_ref().unwrap().clone(),
             world: state.world.clone(),
-            turtle,
+            pos: Arc::new(RwLock::new(turtle.position)),
+            fuel: Arc::new(AtomicUsize::new(turtle.fuel)),
+            max_fuel: Arc::new(AtomicUsize::new(turtle.fuel_limit)),
         })
     }
 
@@ -161,22 +170,26 @@ impl TurtleCommander {
 
         self.sender.to_owned().send((command,send)).await.unwrap();
 
-        recv.await.unwrap()
+        let resp = recv.await.unwrap();
+        let mut pos = self.pos.write().await;
+        *pos = resp.pos;
+        self.fuel.store(resp.fuel, std::sync::atomic::Ordering::SeqCst);
+        resp
     }
 
     pub async fn pos(&self) -> Position {
-        self.turtle.read().await.position
+        self.pos.read().await.clone()
     }
 
     pub async fn fuel(&self) -> usize {
-        self.turtle.read().await.fuel
+        self.fuel.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub async fn fuel_limit(&self) -> usize {
-        self.turtle.read().await.fuel_limit
+        self.max_fuel.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    pub async fn world(&self) -> World {
+    pub fn world(&self) -> World {
         self.world.clone()
     }
 
@@ -188,7 +201,9 @@ impl TurtleCommander {
                 break;
             }
 
-            let route = route(recent, pos, &world).await?;
+            // easiest way to not eventually take over all memory
+            let routing = timeout(Duration::from_secs(1), route(recent, pos, &world));
+            let route = routing.await.ok()??;
 
             let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| from.difference(**to).unwrap()).collect();
 
@@ -212,18 +227,19 @@ impl TurtleCommander {
         let world = self.world.clone();
         loop {
             
-            if pos == recent.dir.unit() + recent.pos {
+            if pos == recent.dir.unit() + recent.pos 
+                || pos == recent.pos + Vec3::y()
+                || pos == recent.pos - Vec3::y()
+            {
                 break;
             }
 
-            let route = route_facing(recent, pos, &world).await?;
+            let routing = timeout(Duration::from_secs(1), route_facing(recent, pos, &world));
+            let route = routing.await.ok()??;
 
             let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| from.difference(**to).unwrap()).collect();
 
             'route: for (next_position, command) in route.into_iter().skip(1).zip(steps) {
-                // reroute if the goal point is not empty before moving
-                // valid routes will explicitly tell you to break ground
-
                 if world.occupied(next_position.pos).await {
                     if world.garbage(next_position.pos).await {
                         self.execute(dbg!(recent.dig(next_position.pos))?).await;
@@ -232,9 +248,13 @@ impl TurtleCommander {
                     }
                 }
 
-                let state = self.execute(command).await;
+                let state = self.execute(command.clone()).await;
 
                 if let TurtleCommandResponse::Failure =  state.ret {
+                    if let TurtleCommand::Backward(_) = command {
+                        // turn around if you bump your rear on something
+                        self.goto(Position::new(recent.pos, recent.dir.left().left())).await?
+                    }
                     break 'route;
                 }
 
@@ -309,7 +329,7 @@ pub(crate) async fn process_turtle_update(
                 _ => {}
             }
             turtle.queued_movement = cmd.unit(turtle.position.dir);
-            println!("Turtle {}: {cmd:?}", turtle.name.to_str());
+            println!("{}: {cmd:?}", turtle.name.to_str());
             return Ok(cmd);
         }
     }

@@ -89,7 +89,7 @@ end
 local commands = {
     ["Wait"] = sleep,
     ["Forward"] = cyclefn(turtle.forward),
-    ["Backward"] = cyclefn(turtle.backward),
+    ["Backward"] = cyclefn(turtle.back),
     ["Up"] = cyclefn(turtle.up),
     ["Down"] = cyclefn(turtle.down),
     ["DropFront"] = turtle.dropfront,

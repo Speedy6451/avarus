@@ -30,6 +30,7 @@ impl World {
         self.state.write().await.insert(block);
     }
 
+    /// Returns true if a known non-air block exists at the point
     pub async fn occupied(&self, block: Vec3) -> bool {
         self.state.read().await.locate_at_point(&block.into()).is_some_and(|b| b.name != "minecraft:air")
     }

@@ -171,8 +171,7 @@ async fn dig(
     let turtle = state.read().await.get_turtle(id).await.unwrap();
     tokio::spawn(
         async move {
-            let pos = turtle.goto_adjacent(req).await.unwrap();
-            turtle.execute(pos.dig(req).unwrap()).await
+            mine::mine_chunk(turtle.clone(), req).await
         }
     );
 
@@ -229,8 +228,6 @@ async fn command(
     Json(req): Json<turtle::TurtleUpdate>,
 ) -> Json<turtle::TurtleCommand> {
     let mut state = &mut state.write().await;
-
-    println!("{:?}", &req);
 
     if id as usize > state.turtles.len() {
         return Json(turtle::TurtleCommand::Update);

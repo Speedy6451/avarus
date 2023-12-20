@@ -16,6 +16,12 @@ pub async fn route_facing(from: Position, to: Vec3, world: &World) -> Option<Vec
 }
 
 pub async fn route(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
+    // attempt at not crashing by looking infinitely into the abyss
+    if world.get(to.pos).await
+        .is_some_and(|b| difficulty(&b.name).is_none())
+    {
+        return None;
+    }
     route_to(from, to.pos, |p| p == &to, world).await
 }
 
@@ -24,13 +30,6 @@ where D: FnMut(&Position) -> bool {
     // lock once, we'll be doing a lot of lookups
     let world = world.clone().lock().await;
 
-    // attempt at not crashing by looking infinitely into the abyss
-    if world
-        .locate_at_point(&to.into())
-        .is_some_and(|b| difficulty(&b.name).is_none())
-    {
-        return None;
-    }
     let route = astar(
         &from,
         move |p| next(p, &world),
@@ -63,8 +62,8 @@ fn next(from: &Position, world: &WorldReadLock) -> Vec<(Position, u32)> {
     let ahead = from.pos + from.dir.unit();
     insert(&mut vec, ahead, from.dir, world, UNKNOWN);
 
-    //let behind = from.pos - from.dir.unit();
-    //insert(&mut vec, behind, from.dir, world, None);
+    let behind = from.pos - from.dir.unit();
+    insert(&mut vec, behind, from.dir, world, None);
 
     let above = from.pos + Vec3::y();
     insert(&mut vec, above, from.dir, world, UNKNOWN);
