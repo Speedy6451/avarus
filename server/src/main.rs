@@ -238,7 +238,7 @@ async fn command(
 
     Json(
         turtle::process_turtle_update(id, &mut state, req).await
-        .unwrap_or(turtle::TurtleCommand::Update),
+        .unwrap_or(turtle::TurtleCommand::Update)
     )
 }
 

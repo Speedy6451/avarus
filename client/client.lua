@@ -43,6 +43,49 @@ local function inventoryinfo()
     return { ["Inventory"] = peripheral.wrap("front").list() }
 end
 
+local function drawui(command, args, backoff)
+    term.setTextColor(colors.white)
+    local name = os.getComputerLabel()
+    local width, height = term.getSize()
+    local offset = math.floor((width - string.len(name)) / 2)
+    term.setCursorPos(offset, 2)
+    term.write(name)
+
+    term.setCursorPos(1,4)
+    term.clearLine()
+    term.write("C&C: ")
+    if backoff == 0 then
+        term.setTextColor(colors.green)
+        term.write("connected")
+    else
+        term.setTextColor(colors.red)
+        term.write("disconnected ")
+        term.setTextColor(colors.gray)
+        term.write(backoff+1 .. " failed attempts")
+        
+    end
+
+    term.setCursorPos(1,6)
+    term.setTextColor(colors.white)
+    term.clearLine()
+    if command then
+        term.write("Command: ")
+        term.write(command .. " ")
+        term.setTextColor(colors.blue)
+        term.write(args)
+    end
+
+    term.setTextColor(colors.white)
+    term.setCursorPos(1,8)
+    term.clearLine()
+    term.write("fuel: ")
+    term.setTextColor(colors.blue)
+    term.write(string.format("%06d" ,turtle.getFuelLevel()))
+    term.setCursorPos(7,9)
+    term.write(string.format("%06d" ,turtle.getFuelLimit()))
+    term.setCursorPos(1,10)
+end
+
 local commands = {
     ["Wait"] = sleep,
     ["Forward"] = cyclefn(turtle.forward),
@@ -137,12 +180,15 @@ else
     idfile.close()
 end
 
+term.clear()
+
 repeat
-    print(command)
     local args = nil
     if type(command) == "table" then
         command, args = pairs(command)(command)
     end
+
+    drawui(command, args, backoff)
 
     local ret = nil
 
@@ -204,11 +250,7 @@ repeat
         backoff = 0
         command = textutils.unserialiseJSON(rsp.readAll())
     else
-        print("C&C server offline, waiting " .. backoff .. " seconds")
         sleep(backoff)
         backoff = backoff + 1
     end
 until command == "Poweroff"
-
-::done:: -- I hate that this exists. What is this, NASM?
-print("exited")
