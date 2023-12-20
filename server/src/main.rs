@@ -169,9 +169,11 @@ async fn dig(
     Json(req): Json<Vec3>,
 ) -> &'static str {
     let turtle = state.read().await.get_turtle(id).await.unwrap();
+    let fuel = Position::new(Vec3::new(-19, 93, 73), blocks::Direction::East);
+    let inventory = Position::new(Vec3::new(-19, 92, 73), blocks::Direction::East);
     tokio::spawn(
         async move {
-            mine::mine_chunk(turtle.clone(), req).await
+            mine::mine(turtle.clone(), req, fuel, inventory).await
         }
     );
 

@@ -202,7 +202,7 @@ impl TurtleCommander {
             }
 
             // easiest way to not eventually take over all memory
-            let routing = timeout(Duration::from_secs(1), route(recent, pos, &world));
+            let routing = timeout(Duration::from_secs(2), route(recent, pos, &world));
             let route = routing.await.ok()??;
 
             let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| from.difference(**to).unwrap()).collect();
@@ -212,7 +212,11 @@ impl TurtleCommander {
                 // valid routes will explicitly tell you to break ground
 
                 if world.occupied(next_position.pos).await {
-                    break 'route;
+                    if world.garbage(next_position.pos).await {
+                        self.execute(dbg!(recent.dig(next_position.pos))?).await;
+                    } else {
+                        break 'route;
+                    }
                 }
 
                 let state = self.execute(command).await;
