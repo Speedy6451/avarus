@@ -355,6 +355,7 @@ pub(crate) async fn process_turtle_update(
         }
     }
 
+    println!("{} idle, connected", turtle.name.to_str());
     Ok(TurtleCommand::Wait(IDLE_TIME))
 }
 

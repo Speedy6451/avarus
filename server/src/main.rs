@@ -102,6 +102,7 @@ async fn main() -> Result<(), Error> {
         .route("/turtle/:id/setGoal", post(set_goal))
         .route("/turtle/:id/dig", post(dig))
         .route("/turtle/:id/cancelTask", post(cancel))
+        .route("/turtle/:id/manual", post(run_command))
         .route("/turtle/:id/info", get(turtle_info))
         //.route("/turtle/:id/placeUp", get(place_up))
         .route("/turtle/updateAll", get(update_turtles))
@@ -161,6 +162,17 @@ async fn place_up(
     let response = turtle.execute(turtle::TurtleCommand::PlaceUp).await;
 
     Json(response)
+}
+
+async fn run_command(
+    Path(id): Path<u32>,
+    State(state): State<SharedControl>,
+    Json(req): Json<TurtleCommand>,
+) -> Json<TurtleCommandResponse> {
+    let state = state.read().await;
+    let commander = state.get_turtle(id).await.unwrap().clone();
+    drop(state);
+    Json(commander.execute(req).await.ret)
 }
 
 async fn dig(
