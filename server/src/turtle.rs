@@ -213,13 +213,26 @@ impl TurtleCommander {
 
                 if world.occupied(next_position.pos).await {
                     if world.garbage(next_position.pos).await {
-                        self.execute(dbg!(recent.dig(next_position.pos))?).await;
+                        match recent.dig(next_position.pos) {
+                            Some(command) => self.execute(command).await,
+                            None => break 'route,
+                        };
                     } else {
                         break 'route;
                     }
                 }
 
-                let state = self.execute(command).await;
+                let state = self.execute(command.clone()).await;
+
+                if let TurtleCommandResponse::Failure =  state.ret {
+                    if let TurtleCommand::Backward(_) = command {
+                        // turn around if you bump your rear on something
+                        self.execute(TurtleCommand::Left).await;
+                        recent = self.execute(TurtleCommand::Left).await.pos;
+                    }
+                    break 'route;
+                }
+
                 recent = state.pos;
             }
         }
@@ -246,7 +259,11 @@ impl TurtleCommander {
             'route: for (next_position, command) in route.into_iter().skip(1).zip(steps) {
                 if world.occupied(next_position.pos).await {
                     if world.garbage(next_position.pos).await {
-                        self.execute(dbg!(recent.dig(next_position.pos))?).await;
+                        let command = dbg!(recent.dig(next_position.pos));
+                        match command {
+                            Some(command) => self.execute(command).await,
+                            None => break 'route,
+                        };
                     } else {
                         break 'route;
                     }
