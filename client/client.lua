@@ -1,23 +1,8 @@
-local function refuel()
-    turtle.select(16)
-    turtle.dropUp()
-    while turtle.getFuelLevel() ~= turtle.getFuelLimit() do
-        turtle.suck()
-        turtle.refuel()
-    end
-end
-
-local function dump()
-    for i = 1, 16, 1 do
-        turtle.select(i)
-        turtle.drop()
-    end
-end
-
 local port = "48228"
 local endpoint = "http://" .. ipaddr .. ":" .. port
 
-local function update(args)
+local args = {...}
+local function update()
     if args[1] == "nested" then
         -- no exec = stack overflow
         return false
@@ -48,6 +33,49 @@ local function cycle(func, n)
     end
     return true
 end
+
+local function cyclefn(fn)
+    return function (n)
+        cycle(fn, n)
+    end
+end
+
+local function iteminfo(slot)
+    return { ["Item"] = turtle.getItemDetail(slot) }
+end
+
+local function inventoryinfo()
+    return { ["Inventory"] = peripheral.wrap("front").list() }
+end
+
+local commands = {
+    ["Wait"] = sleep,
+    ["Forward"] = cyclefn(turtle.forward),
+    ["Backward"] = cyclefn(turtle.backward),
+    ["Up"] = cyclefn(turtle.up),
+    ["Down"] = cyclefn(turtle.down),
+    ["DropFront"] = turtle.dropfront,
+    ["DropUp"] = turtle.dropup,
+    ["DropDown"] = turtle.dropdown,
+    ["SuckFront"] = turtle.suckfront,
+    ["SuckUp"] = turtle.suckup,
+    ["SuckDown"] = turtle.suckdown,
+    ["Select"] = turtle.select,
+    ["Refuel"] = turtle.refuel,
+    ["ItemInfo"] = iteminfo,
+    ["InventoryInfo"] = inventoryinfo,
+    ["Left"] = turtle.turnLeft,
+    ["Right"] = turtle.turnRight,
+    ["Dig"] = turtle.dig,
+    ["DigUp"] = turtle.digUp,
+    ["DigDown"] = turtle.digDown,
+    ["PlaceUp"] = turtle.placeUp,
+    ["Place"] = turtle.place,
+    ["PlaceDown"] = turtle.placeDown,
+    ["Update"] = update,
+    ["Poweroff"] = os.shutdown,
+    ["GetFuelLimit"] = turtle.getFuelLimit,
+};
 
 if not ipaddr then
     if fs.exists("/disk/ip") then
@@ -116,36 +144,12 @@ repeat
 
     local ret = nil
 
-    if command == "Wait" then
-        sleep(args)
-    elseif command == "Forward" then
-        ret = cycle(turtle.forward, args)
-    elseif command == "Backward" then
-        ret = cycle(turtle.back, args)
-    elseif command == "Left" then
-        ret = turtle.turnLeft()
-    elseif command == "Right" then
-        ret = turtle.turnRight()
-    elseif command == "Up" then
-        ret = cycle(turtle.up, args)
-    elseif command == "Down" then
-        ret = cycle(turtle.down, args)
-    elseif command == "Dig" then
-        ret = turtle.dig()
-    elseif command == "DigUp" then
-        ret = turtle.digUp()
-    elseif command == "DigDown" then
-        ret = turtle.digDown()
-    elseif command == "ItemInfo" then
-        ret = { Item = turtle.getItemDetail(args) }
-    elseif command == "Refuel" then
-        refuel()
-    elseif command == "Dump" then
-        dump()
-    elseif command == "Update" then
-        if not update({...}) then
-            break
-        end
+    if command then
+        ret = commands[command](args)
+    end
+
+    if command == "Update" and ret == false then
+        break
     end
 
     command = nil
@@ -190,7 +194,6 @@ repeat
         below = below,
         ret = ret_table,
     }
-    print(info.ret)
 
     local rsp = http.post(
         endpoint .. "/turtle/" .. id  .. "/update" ,
@@ -206,3 +209,6 @@ repeat
         backoff = backoff + 1
     end
 until command == "Poweroff"
+
+::done:: -- I hate that this exists. What is this, NASM?
+print("exited")

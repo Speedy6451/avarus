@@ -200,7 +200,7 @@ async fn cancel(
 }
 
 async fn update_turtles(State(state): State<SharedControl>) -> &'static str {
-    for turtle in state .write().await.turtles.iter_mut() {
+    for turtle in state.read().await.turtles.iter() {
             turtle.write().await.pending_update = true;
     }
 

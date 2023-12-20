@@ -246,7 +246,7 @@ pub(crate) async fn process_turtle_update(
 ) -> anyhow::Result<TurtleCommand> {
     let mut  turtle = state
         .turtles
-        .get_mut(id as usize)
+        .get(id as usize)
         .context("nonexisting turtle")?.write().await;
     let world = &mut state.world;
 
@@ -329,13 +329,15 @@ pub(crate) enum TurtleCommand {
     DropFront(u32),
     DropUp(u32),
     DropDown(u32),
+    SuckFront(u32),
+    SuckUp(u32),
+    SuckDown(u32),
     Select(u32),
     /// Slot in inventory
     ItemInfo(u32),
     Update,
     Poweroff,
     Refuel,
-    Dump,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
