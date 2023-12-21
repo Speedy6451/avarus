@@ -1,4 +1,4 @@
-#![feature(iter_map_windows)]
+#![feature(iter_map_windows, iter_collect_into)]
 
 use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args, path};
 
