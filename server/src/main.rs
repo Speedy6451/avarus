@@ -212,11 +212,12 @@ async fn run_command(
 async fn dig(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
-    Json(req): Json<Vec3>,
+    Json(req): Json<(Vec3, Position, Position)>,
 ) -> &'static str {
     let turtle = state.read().await.get_turtle(id).await.unwrap();
-    let fuel = Position::new(Vec3::new(-19, 93, 73), blocks::Direction::East);
-    let inventory = Position::new(Vec3::new(-19, 92, 73), blocks::Direction::East);
+    let (req, fuel, inventory) = req;
+    //let fuel = Position::new(Vec3::new(-19, 93, 73), blocks::Direction::East);
+    //let inventory = Position::new(Vec3::new(-19, 92, 73), blocks::Direction::East);
     tokio::spawn(
         async move {
             mine::mine(turtle.clone(), req, fuel, inventory).await

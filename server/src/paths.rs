@@ -35,8 +35,7 @@ where D: FnMut(&Position) -> bool {
         move |p| next(p, &world),
         |p1| (p1.pos - &to).abs().sum() as u32,
         done,
-    )
-    .unwrap();
+    )?;
     Some(route.0)
 }
 
@@ -74,6 +73,13 @@ fn next(from: &Position, world: &WorldReadLock) -> Vec<(Position, u32)> {
     vec
 }
 
+/// Blocks that you can go through without a pickaxe
+pub const TRANSPARENT: [&str; 3] = [
+    "minecraft:air",
+    "minecraft:water",
+    "minecraft:lava",
+];
+
 /// Blocks that are fine to tunnel through
 const GARBAGE: [&str; 6] = [
     "minecraft:stone",
@@ -89,7 +95,7 @@ const UNKNOWN: Option<u32> = Some(2);
 
 // time to go somewhere
 pub fn difficulty(name: &str) -> Option<u32> {
-    if name == "minecraft:air" {
+    if TRANSPARENT.contains(&name) {
         return Some(1);
     };
     if GARBAGE.contains(&name) {

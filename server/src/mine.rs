@@ -130,8 +130,9 @@ impl TurtleTask for TurtleMineJob {
 use TurtleCommand::*;
 
 /// Things to leave in the field (not worth fuel)
-const USELESS: [&str; 4] = [
+const USELESS: [&str; 5] = [
     "minecraft:dirt",
+    "minecraft:gravel",
     "minecraft:cobblestone",
     "minecraft:cobbled_deepslate",
     "minecraft:diorite",
@@ -150,17 +151,13 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
     loop {
         mine_chunk(turtle.clone(), pos, chunk).await?;
 
-        turtle.world().lock().await
-            .locate_within_distance(pos.into(), chunk.map(|n| n.pow(2)).sum()) 
-            .filter(|n| n.name != "minecraft:air")
-            .filter(|n| VALUABLE.iter().any(|v| n.name.contains(v)))
-            .map(|b|b.pos).collect_into(&mut valuables);
-
-        dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await;
+        valuables.append(&mut near_valuables(&turtle, pos, chunk).await);
 
         while let Some(block) = valuables.pop() {
             let near = turtle.goto_adjacent(block).await?;
             turtle.execute(dbg!(near.dig(block))?).await;
+            observe(turtle.clone(), block).await;
+            valuables.append(&mut near_valuables(&turtle, near.pos, Vec3::new(2,2,2)).await);
         }
 
         if (turtle.fuel().await as f64) < (volume + (fuel.pos-turtle.pos().await.pos).abs().sum()) as f64 * 1.1 {
@@ -169,7 +166,7 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
             refuel(turtle.clone()).await;
         }
 
-        if let turtle::TurtleCommandResponse::Item(_) =  turtle.execute(ItemInfo(13)).await.ret {
+        if dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await > 13 {
             println!("storage rtb");
             turtle.goto(storage).await?;
             dump(turtle.clone()).await;
@@ -177,6 +174,14 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
 
         pos += Vec3::z() * chunk.z;
     }
+}
+
+async fn near_valuables(turtle: &TurtleCommander, pos: Vec3, chunk: Vec3) -> Vec<Vec3> {
+    turtle.world().lock().await
+        .locate_within_distance(pos.into(), chunk.map(|n| n.pow(2)).sum()) 
+        .filter(|n| n.name != "minecraft:air")
+        .filter(|n| VALUABLE.iter().any(|v| n.name.contains(v)))
+        .map(|b|b.pos).collect()
 }
 
 pub async fn mine_chunk(turtle: TurtleCommander, pos: Vec3, chunk: Vec3) -> Option<()> {
@@ -224,15 +229,20 @@ async fn dump(turtle: TurtleCommander) {
 }
 
 /// Dump all items that match the predicate
-async fn dump_filter<F>(turtle: TurtleCommander, mut filter: F)
+/// Returns the number of slots still full after the operation
+async fn dump_filter<F>(turtle: TurtleCommander, mut filter: F) -> u32
 where F: FnMut(InventorySlot) -> bool {
+    let mut counter = 0;
     for i in 1..=16 {
         if let TurtleCommandResponse::Item(item) = turtle.execute(Select(i)).await.ret {
             if filter(item) {
                 turtle.execute(DropFront(64)).await;
+            } else {
+                counter += 1;
             }
         }
     }
+    counter
 }
 
 /// zig from 0 to x and back, stopping on each end
@@ -254,4 +264,27 @@ fn fill(scale: Vec3, n: i32) -> Vec3 {
         step(n/scale.x, scale.y),
         step(n/scale.x/scale.y, scale.z)
     )
+}
+
+/// Looks at all the blocks around the given pos
+/// destructive
+async fn observe(turtle: TurtleCommander, pos: Vec3) -> Option<()> {
+    let adjacent = [
+        pos, 
+        pos + Vec3::y(),
+        pos + Vec3::x(),
+        pos + Vec3::z(),
+        pos - Vec3::x(),
+        pos - Vec3::z(),
+        pos - Vec3::y(),
+    ];
+
+    for pos in adjacent {
+        if turtle.world().get(pos).await.is_none() {
+            turtle.goto_adjacent(pos).await?;
+        }
+        
+    }
+
+    Some(())
 }

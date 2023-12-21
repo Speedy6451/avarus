@@ -5,7 +5,7 @@ use rstar::{self, PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, RwLockReadGuard, OwnedRwLockReadGuard};
 
-use crate::{turtle::TurtleCommand, paths};
+use crate::{turtle::TurtleCommand, paths::{self, TRANSPARENT}};
 
 pub type WorldReadLock = OwnedRwLockReadGuard<RTree<Block>>;
 
@@ -30,9 +30,9 @@ impl World {
         self.state.write().await.insert(block);
     }
 
-    /// Returns true if a known non-air block exists at the point
+    /// Returns true if a known non-traversable block exists at the point
     pub async fn occupied(&self, block: Vec3) -> bool {
-        self.state.read().await.locate_at_point(&block.into()).is_some_and(|b| b.name != "minecraft:air")
+        self.state.read().await.locate_at_point(&block.into()).is_some_and(|b| !TRANSPARENT.contains(&b.name.as_str()))
     }
 
     /// Returns true if a "garbage" block exists at the given point which you are free to destroy
