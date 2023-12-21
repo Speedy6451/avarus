@@ -274,7 +274,8 @@ impl TurtleCommander {
                 if let TurtleCommandResponse::Failure =  state.ret {
                     if let TurtleCommand::Backward(_) = command {
                         // turn around if you bump your rear on something
-                        self.goto(Position::new(recent.pos, recent.dir.left().left())).await?
+                        self.execute(TurtleCommand::Left).await;
+                        recent = self.execute(TurtleCommand::Left).await.pos;
                     }
                     break 'route;
                 }
@@ -305,13 +306,13 @@ pub(crate) async fn process_turtle_update(
 
     if turtle.fuel > update.fuel {
         let diff = turtle.fuel - update.fuel;
-        turtle.fuel = update.fuel;
 
         let delta = turtle.queued_movement * diff as i32;
 
         turtle.position.pos += delta;
         turtle.queued_movement = Vec3::zeros();
     }
+    turtle.fuel = update.fuel;
 
     let above = Block {
         name: update.above.clone(),

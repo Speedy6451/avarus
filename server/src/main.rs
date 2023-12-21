@@ -1,6 +1,6 @@
 #![feature(iter_map_windows)]
 
-use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args};
+use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args, path};
 
 use anyhow::{Context, Error, Ok};
 use axum::{
@@ -73,7 +73,7 @@ impl LiveState {
 }
 
 static PORT: OnceCell<u16> = OnceCell::const_new();
-static SAVE: OnceCell<String> = OnceCell::const_new();
+static SAVE: OnceCell<path::PathBuf> = OnceCell::const_new();
 
 type SharedControl = Arc<RwLock<LiveState>>;
 
@@ -85,24 +85,11 @@ async fn main() -> Result<(), Error> {
         None => 48228,
     })?;
     SAVE.set(match args.next() {
-        Some(file) => file,
-        None => "state.json".to_string(),
+        Some(file) => file.into(),
+        None => "save".into(),
     })?;
 
-    let state = match tokio::fs::OpenOptions::new()
-        .read(true)
-        .open(SAVE.get().unwrap())
-        .await
-    {
-        tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
-        tokio::io::Result::Err(e) => match e.kind() {
-            ErrorKind::NotFound => SavedState {
-                turtles: Vec::new(),
-                world: RTree::new(),
-            },
-            _ => panic!(),
-        },
-    };
+    let state = read_from_disk().await?;
 
     let state = LiveState::from_save(state);
 
@@ -142,9 +129,40 @@ async fn flush(State(state): State<SharedControl>) -> &'static str {
 }
 
 async fn write_to_disk(state: SavedState) -> anyhow::Result<()> {
-    let json = serde_json::to_string_pretty(&state)?;
-    tokio::fs::write(SAVE.get().unwrap(), json).await?;
+    let json = serde_json::to_string_pretty(&state.turtles)?;
+    let bincode = bincode::serialize(&state.world)?;
+    tokio::fs::write(SAVE.get().unwrap().join("turtles.json"), json).await?;
+    tokio::fs::write(SAVE.get().unwrap().join("world.bin"), bincode).await?;
     Ok(())
+}
+
+async fn read_from_disk() -> anyhow::Result<SavedState> {
+    let turtles = match tokio::fs::OpenOptions::new()
+        .read(true)
+        .open(SAVE.get().unwrap().join("turtles.json"))
+        .await
+    {
+        tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
+        tokio::io::Result::Err(e) => match e.kind() {
+            ErrorKind::NotFound => Vec::new(),
+            _ => panic!(),
+        },
+    };
+
+    let world = match tokio::fs::OpenOptions::new()
+    .read(true).open(SAVE.get().unwrap().join("world.bin")).await {
+        tokio::io::Result::Ok(file) => bincode::deserialize_from(file.into_std().await)?,
+        tokio::io::Result::Err(e) => match e.kind() {
+            ErrorKind::NotFound => RTree::new(),
+            _ => panic!(),
+        },
+        
+    };
+
+    Ok(SavedState {
+        turtles,
+        world,
+    })
 }
 
 async fn create_turtle(

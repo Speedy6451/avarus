@@ -1,13 +1,14 @@
-DEVPORT=1505
-DEVFILE="offline-state.json"
+DEVPORT=1507
+DEVFILE="dev"
 PRODPORT=48228
-PRODFILE="state.json"
+PRODFILE="prod"
 
 MANIFEST=../Cargo.toml
 
 .PHONY: local global
 local: surnames.txt names.txt ipaddr.txt
 	echo '"localhost"' > ipaddr.txt
+	mkdir -p dev
 	cargo run $(DEVPORT) $(DEVFILE)
 	 
 global: surnames.txt names.txt ipaddr.txt
