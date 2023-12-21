@@ -259,7 +259,7 @@ impl TurtleCommander {
             'route: for (next_position, command) in route.into_iter().skip(1).zip(steps) {
                 if world.occupied(next_position.pos).await {
                     if world.garbage(next_position.pos).await {
-                        let command = dbg!(recent.dig(next_position.pos));
+                        let command = recent.dig(next_position.pos);
                         match command {
                             Some(command) => self.execute(command).await,
                             None => break 'route,

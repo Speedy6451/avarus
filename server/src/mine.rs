@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use rstar::{self, AABB};
 use std::collections::VecDeque;
 
-use crate::{blocks::{Position, Vec3, Block, Direction}, turtle::{TurtleTask, Iota, self, Turtle, TurtleCommand, TurtleCommander, TurtleCommandResponse, InventorySlot}};
+use crate::{blocks::{Position, Vec3, Block, Direction}, turtle::{TurtleTask, Iota, self, Turtle, TurtleCommand, TurtleCommander, TurtleCommandResponse, InventorySlot}, paths::TRANSPARENT};
 
 #[derive(Serialize, Deserialize)]
 pub struct TurtleMineJobParams {
@@ -154,8 +154,11 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
         valuables.append(&mut near_valuables(&turtle, pos, chunk).await);
 
         while let Some(block) = valuables.pop() {
+            if turtle.world().get(block).await.is_none() {
+                continue;
+            }
             let near = turtle.goto_adjacent(block).await?;
-            turtle.execute(dbg!(near.dig(block))?).await;
+            turtle.execute(near.dig(block)?).await;
             observe(turtle.clone(), block).await;
             valuables.append(&mut near_valuables(&turtle, near.pos, Vec3::new(2,2,2)).await);
         }
@@ -166,7 +169,7 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
             refuel(turtle.clone()).await;
         }
 
-        if dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await > 13 {
+        if dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await > 12 {
             println!("storage rtb");
             turtle.goto(storage).await?;
             dump(turtle.clone()).await;
@@ -189,13 +192,13 @@ pub async fn mine_chunk(turtle: TurtleCommander, pos: Vec3, chunk: Vec3) -> Opti
     let volume = chunk.x * chunk.y * chunk.z;
 
     for n in (0..volume).map(|n| fill(chunk, n) + pos) {
-        if turtle.world().get(n).await.is_some_and(|b| b.name == "minecraft:air") {
+        if turtle.world().get(n).await.is_some_and(|b| TRANSPARENT.contains(&b.name.as_str())) {
             continue;
         }
 
         let near = turtle.goto_adjacent(n).await?;
 
-        turtle.execute(dbg!(near.dig(n))?).await;
+        turtle.execute(near.dig(n)?).await;
         
     }
     Some(())
@@ -234,8 +237,9 @@ async fn dump_filter<F>(turtle: TurtleCommander, mut filter: F) -> u32
 where F: FnMut(InventorySlot) -> bool {
     let mut counter = 0;
     for i in 1..=16 {
-        if let TurtleCommandResponse::Item(item) = turtle.execute(Select(i)).await.ret {
+        if let TurtleCommandResponse::Item(item) = turtle.execute(ItemInfo(i)).await.ret {
             if filter(item) {
+                turtle.execute(Select(i)).await;
                 turtle.execute(DropFront(64)).await;
             } else {
                 counter += 1;
