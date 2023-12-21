@@ -1,5 +1,9 @@
-local port = "48228"
-local endpoint = "http://" .. ipaddr .. ":" .. port
+local endpoint = "http://" .. ipaddr .. ":" 
+if port then
+    endpoint = endpoint .. port
+else
+    endpoint = endpoint .. "48228"
+end
 
 local args = {...}
 local function update()

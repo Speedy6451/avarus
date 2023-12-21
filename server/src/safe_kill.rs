@@ -1,3 +1,4 @@
+use tokio::net::TcpListener;
 use tokio::signal;
 
 use std;
@@ -18,11 +19,7 @@ use tokio::sync::watch::Sender;
 
 use axum::Router;
 
-pub(crate) async fn serve(server: Router) -> Sender<()> {
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:48228")
-        .await
-        .unwrap();
-
+pub(crate) async fn serve(server: Router, listener: TcpListener) -> Sender<()> {
     let (close_tx, close_rx) = watch::channel(());
 
     loop {

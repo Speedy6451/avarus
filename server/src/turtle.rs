@@ -303,15 +303,13 @@ pub(crate) async fn process_turtle_update(
         return Ok(TurtleCommand::Update);
     }
 
-    if turtle.fuel != update.fuel {
+    if turtle.fuel > update.fuel {
         let diff = turtle.fuel - update.fuel;
         turtle.fuel = update.fuel;
 
-        if diff > 0 {
-            let delta = turtle.queued_movement * diff as i32;
+        let delta = turtle.queued_movement * diff as i32;
 
-            turtle.position.pos += delta;
-        }
+        turtle.position.pos += delta;
         turtle.queued_movement = Vec3::zeros();
     }
 

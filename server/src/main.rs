@@ -1,6 +1,6 @@
 #![feature(iter_map_windows)]
 
-use std::{collections::VecDeque, io::ErrorKind, sync::Arc};
+use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args};
 
 use anyhow::{Context, Error, Ok};
 use axum::{
@@ -10,6 +10,7 @@ use axum::{
     Json, Router,
 };
 use blocks::{World, Position, Vec3};
+use indoc::formatdoc;
 use mine::TurtleMineJob;
 use rstar::{self, AABB, RTree};
 
@@ -18,12 +19,12 @@ use hyper::body::Incoming;
 use nalgebra::Vector3;
 use names::Name;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{
+use tokio::{sync::{
     watch::{self},
-    Mutex, RwLock, mpsc
-};
+    Mutex, RwLock, mpsc, OnceCell
+}, fs};
 use tower::Service;
-use turtle::{TurtleTask, Iota, Receiver, Sender, Turtle, TurtleUpdate, TurtleInfo, TurtleCommand, TurtleCommander};
+use turtle::{TurtleTask, Iota, Receiver, Sender, Turtle, TurtleUpdate, TurtleInfo, TurtleCommand, TurtleCommander, TurtleCommandResponse};
 
 use crate::{blocks::Block, paths::route};
 
@@ -71,14 +72,26 @@ impl LiveState {
     
 }
 
+static PORT: OnceCell<u16> = OnceCell::const_new();
+static SAVE: OnceCell<String> = OnceCell::const_new();
 
 type SharedControl = Arc<RwLock<LiveState>>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    let mut args = args().skip(1);
+    PORT.set(match args.next() {
+        Some(port) => port.parse()?,
+        None => 48228,
+    })?;
+    SAVE.set(match args.next() {
+        Some(file) => file,
+        None => "state.json".to_string(),
+    })?;
+
     let state = match tokio::fs::OpenOptions::new()
         .read(true)
-        .open("state.json")
+        .open(SAVE.get().unwrap())
         .await
     {
         tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
@@ -109,7 +122,10 @@ async fn main() -> Result<(), Error> {
         .route("/flush", get(flush))
         .with_state(state.clone());
 
-    let server = safe_kill::serve(server).await;
+    let listener = tokio::net::TcpListener::bind(("0.0.0.0", *PORT.get().unwrap()))
+        .await.unwrap();
+
+    let server = safe_kill::serve(server, listener).await;
 
     println!("writing");
     write_to_disk(state.read().await.save().await).await?;
@@ -127,7 +143,7 @@ async fn flush(State(state): State<SharedControl>) -> &'static str {
 
 async fn write_to_disk(state: SavedState) -> anyhow::Result<()> {
     let json = serde_json::to_string_pretty(&state)?;
-    tokio::fs::write("state.json", json).await?;
+    tokio::fs::write(SAVE.get().unwrap(), json).await?;
     Ok(())
 }
 
@@ -253,11 +269,14 @@ async fn command(
     )
 }
 
-async fn client() -> &'static str {
-    formatcp!(
-        "local ipaddr = {}\n{}",
+async fn client() -> String {
+    formatdoc!(r#"
+        local ipaddr = {}
+        local port = "{}"
+        {}"#,
         include_str!("../ipaddr.txt"),
-        include_str!("../../client/client.lua")
+        PORT.get().unwrap(),
+        fs::read_to_string("../client/client.lua").await.unwrap(), // TODO: cache handle if bottleneck
     )
 }
 
