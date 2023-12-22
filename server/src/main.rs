@@ -9,6 +9,7 @@ use axum::{
     Router,
 };
 use blocks::{World, Position, };
+use depot::Depots;
 use log::info;
 use rstar::RTree;
 
@@ -31,6 +32,7 @@ mod safe_kill;
 mod turtle;
 mod turtle_api;
 mod tasks;
+mod depot;
 
 #[derive(Serialize, Deserialize)]
 struct SavedState {
@@ -44,7 +46,7 @@ struct LiveState {
     turtles: Vec<Arc<RwLock<turtle::Turtle>>>,
     tasks: Vec<VecDeque<()>>,
     world: blocks::World,
-    depots: Mutex<Vec<Arc<Mutex<Position>>>>,
+    depots: Depots,
 }
 
 impl LiveState {
@@ -53,10 +55,7 @@ impl LiveState {
         for turtle in self.turtles.iter() {
             turtles.push(turtle.read().await.info());
         };
-        let mut depots = Vec::new();
-        for depot in self.depots.lock().await.iter() {
-            depots.push(*depot.lock().await);
-        };
+        let depots = self.depots.clone().to_vec().await;
         SavedState { turtles, world: self.world.tree().await, depots }
     }
 
@@ -66,12 +65,10 @@ impl LiveState {
             let (tx, rx) = mpsc::channel(1);
             turtles.push(Turtle::with_channel(turtle.name.to_num(), turtle.position, turtle.fuel, turtle.fuel_limit, tx, rx));
         };
-        let mut depots = Vec::new();
-        for depot in save.depots {
-            depots.push(Arc::new(Mutex::new(depot)));
-        }
+        let depots = Depots::from_vec(save.depots);
+            
         Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: Vec::new(), world: World::from_tree(save.world),
-            depots: Mutex::new(depots)
+            depots,
         }
     }
 

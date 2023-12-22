@@ -3,6 +3,7 @@ use crate::blocks::Direction;
 use crate::blocks::Position;
 use crate::blocks::Vec3;
 use crate::blocks::World;
+use crate::depot::Depots;
 use crate::paths::route_facing;
 
 use anyhow::Ok;
@@ -12,6 +13,7 @@ use anyhow::Context;
 use log::trace;
 use log::warn;
 use log::info;
+use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
@@ -141,6 +143,7 @@ impl Turtle {
 pub struct TurtleCommander {
     sender: Arc<Sender>,
     world: World,
+    depots: Depots,
     // everything below is best-effort
     // TODO: make not bad
     pos: Arc<RwLock<Position>>,
@@ -160,6 +163,7 @@ impl TurtleCommander {
             fuel: Arc::new(AtomicUsize::new(turtle.fuel)),
             max_fuel: Arc::new(AtomicUsize::new(turtle.fuel_limit)),
             name: Arc::new(OnceCell::new_with(Some(turtle.name))),
+            depots: state.depots.clone(),
         })
     }
 
