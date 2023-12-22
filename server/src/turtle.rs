@@ -117,6 +117,7 @@ impl Turtle {
         Self {
             name: self.name,
             fuel: self.fuel,
+            fuel_limit: self.fuel_limit,
             position: self.position,
             pending_update: self.pending_update,
             queued_movement: self.queued_movement,

@@ -61,8 +61,8 @@ fn next(from: &Position, world: &WorldReadLock) -> Vec<(Position, u32)> {
     let ahead = from.pos + from.dir.unit();
     insert(&mut vec, ahead, from.dir, world, UNKNOWN);
 
-    let behind = from.pos - from.dir.unit();
-    insert(&mut vec, behind, from.dir, world, None);
+    //let behind = from.pos - from.dir.unit();
+    //insert(&mut vec, behind, from.dir, world, None);
 
     let above = from.pos + Vec3::y();
     insert(&mut vec, above, from.dir, world, UNKNOWN);
@@ -81,13 +81,15 @@ pub const TRANSPARENT: [&str; 3] = [
 ];
 
 /// Blocks that are fine to tunnel through
-const GARBAGE: [&str; 6] = [
+const GARBAGE: [&str; 8] = [
     "minecraft:stone",
     "minecraft:dirt",
     "minecraft:andesite",
     "minecraft:sand",
     "minecraft:gravel",
     "minecraft:sandstone",
+    "minecraft:deepslate",
+    "twigs:rhyolite",
 ];
 
 /// time taken to go through uncharted territory (in turtle. calls)

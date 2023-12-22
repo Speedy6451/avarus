@@ -135,7 +135,7 @@ const USELESS: [&str; 5] = [
     "minecraft:gravel",
     "minecraft:cobblestone",
     "minecraft:cobbled_deepslate",
-    "minecraft:diorite",
+    "minecraft:rhyolite",
 ];
 
 /// Things that are desirable
@@ -148,7 +148,19 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
     let volume = chunk.x * chunk.y * chunk.z;
     let mut pos = pos;
     let mut valuables = Vec::new();
+
+    async fn refuel_needed(turtle: &TurtleCommander, volume: i32, fuel: Position) -> Option<()> {
+        Some(if (turtle.fuel().await as f64) < (volume + (fuel.pos-turtle.pos().await.pos).abs().sum()) as f64 * 1.1 {
+            println!("refueling");
+            turtle.goto(fuel).await?;
+            println!("docked");
+            refuel(turtle.clone()).await;
+        })
+    }
+
     loop {
+        refuel_needed(&turtle, volume, fuel).await?;
+
         mine_chunk(turtle.clone(), pos, chunk).await?;
 
         valuables.append(&mut near_valuables(&turtle, pos, chunk).await);
@@ -161,12 +173,8 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
             turtle.execute(near.dig(block)?).await;
             observe(turtle.clone(), block).await;
             valuables.append(&mut near_valuables(&turtle, near.pos, Vec3::new(2,2,2)).await);
-        }
 
-        if (turtle.fuel().await as f64) < (volume + (fuel.pos-turtle.pos().await.pos).abs().sum()) as f64 * 1.1 {
-            println!("refueling");
-            turtle.goto(fuel).await?;
-            refuel(turtle.clone()).await;
+            refuel_needed(&turtle, volume, fuel).await?;
         }
 
         if dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await > 12 {
