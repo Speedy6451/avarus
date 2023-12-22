@@ -11,6 +11,7 @@ use axum::{
 };
 use blocks::{World, Position, Vec3};
 use indoc::formatdoc;
+use log::info;
 use mine::TurtleMineJob;
 use rstar::{self, AABB, RTree};
 
@@ -90,6 +91,8 @@ async fn main() -> Result<(), Error> {
         None => "save".into(),
     })?;
 
+    log4rs::init_file(SAVE.get().unwrap().join("log.yml"), Default::default())?;
+
     let state = read_from_disk().await?;
 
     let state = LiveState::from_save(state);
@@ -115,7 +118,7 @@ async fn main() -> Result<(), Error> {
 
     let server = safe_kill::serve(server, listener).await;
 
-    println!("writing");
+    info!("writing");
     write_to_disk(state.read().await.save().await).await?;
 
     server.closed().await;
@@ -180,7 +183,7 @@ async fn create_turtle(
     state.tasks.push(VecDeque::new());
     
 
-    println!("new turtle: {id}");
+    info!("new turtle: {id}");
 
     Json(turtle::TurtleResponse {
         name: Name::from_num(id).to_str(),

@@ -1,4 +1,5 @@
 use hilbert_index::FromHilbertIndex;
+use log::{info, warn};
 use nalgebra::SimdValue;
 use serde::{Deserialize, Serialize};
 use rstar::{self, AABB};
@@ -152,9 +153,10 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
 
     async fn refuel_needed(turtle: &TurtleCommander, volume: i32, fuel: Position) -> Option<()> {
         Some(if (turtle.fuel().await as f64) < (2 * volume + (fuel.pos-turtle.pos().await.pos).abs().sum()) as f64 * 1.8 {
-            println!("refueling");
+            let name = turtle.name().await.to_str();
+            info!("{name}: refueling");
             turtle.goto(fuel).await?;
-            println!("docked");
+            info!("{name}: docked");
             refuel(turtle.clone()).await;
         })
     }
@@ -179,7 +181,7 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
         }
 
         if dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await > 12 {
-            println!("storage rtb");
+            info!("storage rtb");
             turtle.goto(storage).await?;
             dump(turtle.clone()).await;
             // while we're here
@@ -225,7 +227,7 @@ async fn refuel(turtle: TurtleCommander) {
         let re = turtle.execute(Refuel).await;
         if let TurtleCommandResponse::Failure = re.ret {
             // partial refuel, good enough
-            println!("only received {} fuel", turtle.fuel().await);
+            warn!("only received {} fuel", turtle.fuel().await);
             if turtle.fuel().await > 5000 {
                 break;
             } else {

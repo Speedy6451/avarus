@@ -14,6 +14,10 @@ use anyhow::Ok;
 
 use anyhow;
 use anyhow::Context;
+use log::trace;
+use log::warn;
+use log::info;
+use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -151,7 +155,7 @@ pub struct TurtleCommander {
     pos: Arc<RwLock<Position>>,
     fuel: Arc<AtomicUsize>,
     max_fuel: Arc<AtomicUsize>,
-    
+    name: Arc<OnceCell<Name>>,
 }
 
 impl TurtleCommander {
@@ -164,6 +168,7 @@ impl TurtleCommander {
             pos: Arc::new(RwLock::new(turtle.position)),
             fuel: Arc::new(AtomicUsize::new(turtle.fuel)),
             max_fuel: Arc::new(AtomicUsize::new(turtle.fuel_limit)),
+            name: Arc::new(OnceCell::new_with(Some(turtle.name))),
         })
     }
 
@@ -177,6 +182,10 @@ impl TurtleCommander {
         *pos = resp.pos;
         self.fuel.store(resp.fuel, std::sync::atomic::Ordering::SeqCst);
         resp
+    }
+
+    pub async fn name(&self) -> Name {
+        self.name.get().unwrap().clone()
     }
 
     pub async fn pos(&self) -> Position {
@@ -336,6 +345,10 @@ pub(crate) async fn process_turtle_update(
 
     let info = TurtleInfo::from_update(update, turtle.name.clone(), turtle.position.clone());
 
+    if let TurtleCommandResponse::Failure = info.ret {
+        warn!("{} command failure", turtle.name.to_str());
+    }
+
     if let Some(send) = turtle.callback.take() {
         send.send(info).unwrap();
     }
@@ -351,12 +364,12 @@ pub(crate) async fn process_turtle_update(
                 _ => {}
             }
             turtle.queued_movement = cmd.unit(turtle.position.dir);
-            println!("{}: {cmd:?}", turtle.name.to_str());
+            info!("{}: {cmd:?}", turtle.name.to_str());
             return Ok(cmd);
         }
     }
 
-    println!("{} idle, connected", turtle.name.to_str());
+    trace!("{} idle, connected", turtle.name.to_str());
     Ok(TurtleCommand::Wait(IDLE_TIME))
 }
 

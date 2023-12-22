@@ -18,6 +18,8 @@ hilbert_index = "0.2.0"
 hyper = "1.0.1"
 hyper-util = "0.1.1"
 indoc = "2.0.4"
+log = "0.4.20"
+log4rs = "1.2.0"
 nalgebra = { version = "0.32.3", features = ["serde-serialize"] }
 parking_lot = { version = "0.11", features = ["serde"] }
 pathfinding = "4.6.0"

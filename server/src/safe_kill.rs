@@ -1,3 +1,4 @@
+use log::{error, info};
 use tokio::net::TcpListener;
 use tokio::signal;
 
@@ -28,7 +29,7 @@ pub(crate) async fn serve(server: Router, listener: TcpListener) -> Sender<()> {
                 result.unwrap()
             }
             _ = shutdown_signal() => {
-                println!("cancelled connection");
+                info!("cancelled connection");
                 break;
             }
         };
@@ -52,12 +53,12 @@ pub(crate) async fn serve(server: Router, listener: TcpListener) -> Sender<()> {
                 tokio::select! {
                     result = conn.as_mut() => {
                         if result.is_err() {
-                            println!("req failed");
+                            error!("req failed");
                         }
                         break;
                     }
                     _ = shutdown_signal() => {
-                        println!("starting shutdown");
+                        info!("starting shutdown");
                         conn.as_mut().graceful_shutdown();
                     }
                 }
