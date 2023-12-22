@@ -1,6 +1,7 @@
 use tokio;
 use blocks::Vec3;
 use crate::turtle::TurtleCommandResponse;
+use crate::turtle::TurtleCommander;
 use crate::turtle::TurtleInfo;
 use axum::extract::Path;
 use crate::turtle::TurtleCommand;
@@ -45,12 +46,13 @@ pub(crate) async fn create_turtle(
     let state = &mut state.write().await;
     let id = state.turtles.len() as u32;
     let (send, receive) = mpsc::channel(1);
+    let turtle = turtle::Turtle::with_channel(id, Position::new(req.position, req.facing), req.fuel, req.fuellimit, send,receive);
+    let commander = TurtleCommander::with_turtle(&turtle, state);
+    state.tasks.add_turtle(&commander);
     state.turtles.push(
         Arc::new(RwLock::new(
-            turtle::Turtle::with_channel(id, Position::new(req.position, req.facing), req.fuel, req.fuellimit, send,receive)
+            turtle
     )));
-    state.tasks.push(VecDeque::new());
-
 
     info!("new turtle: {id}");
 
@@ -115,7 +117,7 @@ pub(crate) async fn cancel(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
 ) -> &'static str {
-    state.write().await.tasks[id as usize].pop_front();
+    //state.write().await.tasks
 
     "ACK"
 }

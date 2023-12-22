@@ -25,8 +25,8 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
     let mut valuables = Vec::new();
 
     async fn refuel_needed(turtle: &TurtleCommander, volume: i32, fuel: Position) -> Option<()> {
-        Some(if (turtle.fuel().await as f64) < (2 * volume + (fuel.pos-turtle.pos().await.pos).abs().sum()) as f64 * 1.8 {
-            let name = turtle.name().await.to_str();
+        Some(if (turtle.fuel() as f64) < (2 * volume + (fuel.pos-turtle.pos().await.pos).abs().sum()) as f64 * 1.8 {
+            let name = turtle.name().to_str();
             info!("{name}: refueling");
             turtle.goto(fuel).await?;
             info!("{name}: docked");
@@ -94,14 +94,14 @@ pub async fn mine_chunk(turtle: TurtleCommander, pos: Vec3, chunk: Vec3) -> Opti
 async fn refuel(turtle: TurtleCommander) {
     turtle.execute(Select(16)).await;
     turtle.execute(DropUp(64)).await;
-    let limit = turtle.fuel_limit().await;
-    while turtle.fuel().await < limit {
+    let limit = turtle.fuel_limit();
+    while turtle.fuel() < limit {
         turtle.execute(SuckFront(64)).await;
         let re = turtle.execute(Refuel).await;
         if let TurtleCommandResponse::Failure = re.ret {
             // partial refuel, good enough
-            warn!("only received {} fuel", turtle.fuel().await);
-            if turtle.fuel().await > 5000 {
+            warn!("only received {} fuel", turtle.fuel());
+            if turtle.fuel() > 5000 {
                 break;
             } else {
                 turtle.execute(Wait(15)).await;
@@ -148,7 +148,7 @@ fn step(n: i32, x: i32) -> i32 {
 }
 
 /// generates a sequence of adjacent positions within a volume
-fn fill(scale: Vec3, n: i32) -> Vec3 {
+pub fn fill(scale: Vec3, n: i32) -> Vec3 {
     assert!(n < scale.x * scale.y * scale.z);
     Vec3::new(
         step(n,scale.x),

@@ -38,15 +38,15 @@ impl Depots {
 
         // refuel
         turtle.execute(Select(1)).await;
-        let limit = turtle.fuel_limit().await;
-        while turtle.fuel().await < limit {
+        let limit = turtle.fuel_limit();
+        while turtle.fuel() < limit {
             turtle.execute(SuckFront(64)).await;
             let re = turtle.execute(Refuel).await;
             turtle.execute(DropDown(64)).await;
             if let TurtleCommandResponse::Failure = re.ret {
                 // partial refuel, good enough
-                warn!("only received {} fuel", turtle.fuel().await);
-                if turtle.fuel().await > 5000 {
+                warn!("only received {} fuel", turtle.fuel());
+                if turtle.fuel() > 5000 {
                     break;
                 } else {
                     turtle.execute(Wait(15)).await;
@@ -58,7 +58,7 @@ impl Depots {
 
         drop(depot); // assumes that the turtle will very quickly leave
 
-        Some(turtle.fuel().await)
+        Some(turtle.fuel())
     }
 
     pub fn from_vec(vec: Vec<Position>) -> Self {

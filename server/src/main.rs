@@ -14,6 +14,7 @@ use log::info;
 use rstar::RTree;
 
 use names::Name;
+use tasks::Scheduler;
 use tokio::{sync::{
     RwLock, mpsc, OnceCell, Mutex
 }, fs};
@@ -33,50 +34,6 @@ mod turtle;
 mod turtle_api;
 mod tasks;
 mod depot;
-
-#[derive(Serialize, Deserialize)]
-struct SavedState {
-    turtles: Vec<turtle::Turtle>,
-    world: RTree<Block>,
-    depots: Vec<Position>,
-    //chunkloaders: unimplemented!(),
-}
-
-struct LiveState {
-    turtles: Vec<Arc<RwLock<turtle::Turtle>>>,
-    tasks: Vec<VecDeque<()>>,
-    world: blocks::World,
-    depots: Depots,
-}
-
-impl LiveState {
-    async fn save(&self) -> SavedState {
-        let mut turtles = Vec::new();
-        for turtle in self.turtles.iter() {
-            turtles.push(turtle.read().await.info());
-        };
-        let depots = self.depots.clone().to_vec().await;
-        SavedState { turtles, world: self.world.tree().await, depots }
-    }
-
-    fn from_save(save: SavedState) -> Self {
-        let mut turtles = Vec::new();
-        for turtle in save.turtles.into_iter() {
-            let (tx, rx) = mpsc::channel(1);
-            turtles.push(Turtle::with_channel(turtle.name.to_num(), turtle.position, turtle.fuel, turtle.fuel_limit, tx, rx));
-        };
-        let depots = Depots::from_vec(save.depots);
-            
-        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: Vec::new(), world: World::from_tree(save.world),
-            depots,
-        }
-    }
-
-    async fn get_turtle(&self, name: u32) -> Option<TurtleCommander> {
-        TurtleCommander::new(Name::from_num(name), self).await
-    }
-    
-}
 
 static PORT: OnceCell<u16> = OnceCell::const_new();
 static SAVE: OnceCell<path::PathBuf> = OnceCell::const_new();
@@ -99,8 +56,6 @@ async fn main() -> Result<(), Error> {
 
     let state = read_from_disk().await?;
 
-    let state = LiveState::from_save(state);
-
     let state = SharedControl::new(RwLock::new(state));
 
     let server = Router::new()
@@ -115,7 +70,7 @@ async fn main() -> Result<(), Error> {
     let server = safe_kill::serve(server, listener).await;
 
     info!("writing");
-    write_to_disk(state.read().await.save().await).await?;
+    write_to_disk(&*state.read().await).await?;
 
     server.closed().await;
 
@@ -123,23 +78,29 @@ async fn main() -> Result<(), Error> {
 }
 
 async fn flush(State(state): State<SharedControl>) -> &'static str {
-    write_to_disk(state.read().await.save().await).await.unwrap();
+    write_to_disk(&*state.read().await).await.unwrap();
 
     "ACK"
 }
 
-async fn write_to_disk(state: SavedState) -> anyhow::Result<()> {
+async fn write_to_disk(state: &LiveState) -> anyhow::Result<()> {
+    let tasks = &state.tasks;
+    let state = state.save().await;
+
     let turtles = serde_json::to_string_pretty(&state.turtles)?;
     let world = bincode::serialize(&state.world)?;
     let depots = serde_json::to_string_pretty(&state.depots)?;
+    let tasks = serde_json::to_string_pretty(tasks)?;
+
     let path = &SAVE.get().unwrap();
     tokio::fs::write(path.join("turtles.json"), turtles).await?;
     tokio::fs::write(path.join("depots.json"), depots).await?;
+    tokio::fs::write(path.join("tasks.json"), tasks).await?;
     tokio::fs::write(path.join("world.bin"), world).await?;
     Ok(())
 }
 
-async fn read_from_disk() -> anyhow::Result<SavedState> {
+async fn read_from_disk() -> anyhow::Result<LiveState> {
     let turtles = match tokio::fs::OpenOptions::new()
         .read(true)
         .open(SAVE.get().unwrap().join("turtles.json"))
@@ -164,6 +125,18 @@ async fn read_from_disk() -> anyhow::Result<SavedState> {
         },
     };
 
+    let scheduler = match tokio::fs::OpenOptions::new()
+        .read(true)
+        .open(SAVE.get().unwrap().join("scheduler.json"))
+        .await
+    {
+        tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
+        tokio::io::Result::Err(e) => match e.kind() {
+            ErrorKind::NotFound => Default::default(),
+            _ => panic!(),
+        },
+    };
+
     let world = match tokio::fs::OpenOptions::new()
     .read(true).open(SAVE.get().unwrap().join("world.bin")).await {
         tokio::io::Result::Ok(file) => bincode::deserialize_from(file.into_std().await)?,
@@ -174,9 +147,61 @@ async fn read_from_disk() -> anyhow::Result<SavedState> {
         
     };
 
-    Ok(SavedState {
+    let saved = SavedState {
         turtles,
         world,
         depots,
-    })
+    };
+
+    let mut live = LiveState::from_save(saved, scheduler);
+
+    for turtle in live.turtles.iter() {
+        live.tasks.add_turtle(&TurtleCommander::new(turtle.read().await.name,&live).await.unwrap())
+    }
+
+    Ok(live)
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedState {
+    turtles: Vec<turtle::Turtle>,
+    world: RTree<Block>,
+    depots: Vec<Position>,
+    //chunkloaders: unimplemented!(),
+}
+
+struct LiveState {
+    turtles: Vec<Arc<RwLock<turtle::Turtle>>>,
+    tasks: Scheduler,
+    world: blocks::World,
+    depots: Depots,
+}
+
+impl LiveState {
+    async fn save(&self) -> SavedState {
+        let mut turtles = Vec::new();
+        for turtle in self.turtles.iter() {
+            turtles.push(turtle.read().await.info());
+        };
+        let depots = self.depots.clone().to_vec().await;
+        SavedState { turtles, world: self.world.tree().await, depots }
+    }
+
+    fn from_save(save: SavedState, scheduler: Scheduler) -> Self {
+        let mut turtles = Vec::new();
+        for turtle in save.turtles.into_iter() {
+            let (tx, rx) = mpsc::channel(1);
+            turtles.push(Turtle::with_channel(turtle.name.to_num(), turtle.position, turtle.fuel, turtle.fuel_limit, tx, rx));
+        };
+        let depots = Depots::from_vec(save.depots);
+            
+        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: scheduler, world: World::from_tree(save.world),
+            depots,
+        }
+    }
+
+    async fn get_turtle(&self, name: u32) -> Option<TurtleCommander> {
+        TurtleCommander::new(Name::from_num(name), self).await
+    }
+    
 }

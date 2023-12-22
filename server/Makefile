@@ -14,7 +14,7 @@ local: surnames.txt names.txt ipaddr.txt
 global: surnames.txt names.txt ipaddr.txt
 	make -B ipaddr.txt
 	mkdir -p prod
-	cd prod; cargo run --release $(PRODPORT) $(PRODFILE)
+	cargo run --release $(PRODPORT) $(PRODFILE)
 
 surnames.txt: 
 	curl https://raw.githubusercontent.com/Hyneman/moby-project/672f6bdca054c42d375f065ffee87e8ceba0c242/moby/mwords/21986na.mes |\

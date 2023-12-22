@@ -167,6 +167,18 @@ impl TurtleCommander {
         })
     }
 
+    pub fn with_turtle(turtle: &Turtle, state: &LiveState) -> TurtleCommander {
+        TurtleCommander { 
+            sender: turtle.sender.as_ref().unwrap().clone(),
+            world: state.world.clone(),
+            pos: Arc::new(RwLock::new(turtle.position)),
+            fuel: Arc::new(AtomicUsize::new(turtle.fuel)),
+            max_fuel: Arc::new(AtomicUsize::new(turtle.fuel_limit)),
+            name: Arc::new(OnceCell::new_with(Some(turtle.name))),
+            depots: state.depots.clone(),
+        }
+    }
+
     pub async fn execute(&self, command: TurtleCommand) -> TurtleInfo {
         let (send, recv) = oneshot::channel::<TurtleInfo>();
 
@@ -179,7 +191,7 @@ impl TurtleCommander {
         resp
     }
 
-    pub async fn name(&self) -> Name {
+    pub fn name(&self) -> Name {
         self.name.get().unwrap().clone()
     }
 
@@ -187,16 +199,20 @@ impl TurtleCommander {
         self.pos.read().await.clone()
     }
 
-    pub async fn fuel(&self) -> usize {
+    pub fn fuel(&self) -> usize {
         self.fuel.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    pub async fn fuel_limit(&self) -> usize {
+    pub fn fuel_limit(&self) -> usize {
         self.max_fuel.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub fn world(&self) -> World {
         self.world.clone()
+    }
+
+    pub async fn dock(&self) -> Option<usize> {
+        Depots::dock(&self.depots, self.to_owned()).await
     }
 
     pub async fn goto(&self, pos: Position) -> Option<()> {

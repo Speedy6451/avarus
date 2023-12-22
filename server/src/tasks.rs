@@ -6,18 +6,19 @@ use tokio::sync::{Mutex, MutexGuard, RwLock, OwnedMutexGuard};
 use tokio::task::JoinHandle;
 
 use crate::LiveState;
+use crate::names::Name;
 use crate::{turtle::{self, TurtleCommander}, blocks::Position};
 
 #[typetag::serde(tag = "type")]
-trait Task {
+pub trait Task: Send + Sync {
     /// Execute the task
-    fn run(&self, turtle: TurtleCommander) -> JoinHandle<()>;
+    fn run(&mut self, turtle: TurtleCommander) -> JoinHandle<()>;
     /// Return Some if the task should be scheduled
-    fn poll(&self) -> Option<Position>;
+    fn poll(&mut self) -> Option<Position>;
 }
 
 #[derive(Serialize, Deserialize)]
-struct Scheduler {
+pub struct Scheduler {
     #[serde(skip)]
     turtles: Vec<(TurtleCommander, Option<JoinHandle<()>>)>,
     tasks: Vec<Box<dyn Task>>,
@@ -35,18 +36,18 @@ impl Default for Scheduler {
 impl Scheduler {
     /// Add a new turtle to the scheduler
     /// Whether or not the turtle is already in the scheduler is not verified
-    fn add_turtle(&mut self, turtle: &TurtleCommander) {
+    pub fn add_turtle(&mut self, turtle: &TurtleCommander) {
         self.turtles.push((
                 turtle.clone(),
                 None
             ));
     }
 
-    fn add_task(&mut self, task: Box<dyn Task>) {
+    pub fn add_task(&mut self, task: Box<dyn Task>) {
         self.tasks.push(task);
     }
 
-    async fn poll(&mut self) {
+    pub async fn poll(&mut self) {
         for turtle in &mut self.turtles {
             if let Some(join)  = &turtle.1 {
                 if join.is_finished() {
@@ -76,5 +77,10 @@ impl Scheduler {
             }
         }
         
+    }
+
+    pub async fn cancel(&mut self, turtle: Name) -> Option<()> {
+        self.turtles.iter_mut().find(|t| t.0.name() == turtle)?.1.take()?.abort();
+        Some(())
     }
 }
