@@ -1,9 +1,9 @@
-use std::{sync::Arc, ops::Index};
+use std::sync::Arc;
 
 use nalgebra::Vector3;
-use rstar::{self, PointDistance, RTree, RTreeObject, AABB};
+use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{RwLock, RwLockReadGuard, OwnedRwLockReadGuard};
+use tokio::sync::{RwLock, OwnedRwLockReadGuard};
 
 use crate::{turtle::TurtleCommand, paths::{self, TRANSPARENT}};
 

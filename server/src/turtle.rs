@@ -1,13 +1,8 @@
-
-use crate::SharedControl;
 use crate::blocks::Block;
 use crate::blocks::Direction;
 use crate::blocks::Position;
 use crate::blocks::Vec3;
 use crate::blocks::World;
-use crate::blocks::nearest;
-use crate::mine::TurtleMineJob;
-use crate::paths;
 use crate::paths::route_facing;
 
 use anyhow::Ok;
@@ -21,13 +16,11 @@ use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tokio::sync::oneshot::channel;
+
 use tokio::time::timeout;
 
 use super::LiveState;
 
-use std::collections::VecDeque;
-use std::future::Ready;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
@@ -53,7 +46,6 @@ pub(crate) struct Turtle {
     /// movement vector of last given command
     pub(crate) queued_movement: Vec3,
     pub(crate) position: Position,
-    pub(crate) goal: Option<Iota>,
     pub(crate) pending_update: bool,
     #[serde(skip)]
     callback: Option<oneshot::Sender<TurtleInfo>>,
@@ -94,7 +86,6 @@ impl Default for Turtle {
             fuel_limit: Default::default(),
             queued_movement: Default::default(),
             position: Position::new(Vec3::zeros(), Direction::North),
-            goal: None,
             pending_update: Default::default(),
             callback: None,
             sender: Some(Arc::new(sender)),
@@ -466,19 +457,3 @@ pub(crate) struct TurtleResponse {
     pub(crate) id: u32,
     pub(crate) command: TurtleCommand,
 }
-
-#[derive(Serialize, Deserialize, Clone)]
-pub enum Iota {
-    End,
-    Goto(Position),
-    Mine(Vec3),
-    Execute(TurtleCommand),
-}
-
-pub trait TurtleTask: erased_serde::Serialize {
-    fn handle_block(&mut self, _: Block) { }
-    fn next(&mut self, turtle: &Turtle) -> Iota
-    { Iota::End }
-}
-
-erased_serde::serialize_trait_object!(TurtleTask);

@@ -2,32 +2,25 @@
 
 use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args, path};
 
-use anyhow::{Context, Error, Ok};
+use anyhow::{Error, Ok};
 use axum::{
     extract::{Path, State},
-    http::request,
     routing::{get, post},
     Json, Router,
 };
 use blocks::{World, Position, Vec3};
-use indoc::formatdoc;
 use log::info;
-use mine::TurtleMineJob;
-use rstar::{self, AABB, RTree};
+use rstar::RTree;
 
-use const_format::formatcp;
-use hyper::body::Incoming;
-use nalgebra::Vector3;
 use names::Name;
-use serde::{Deserialize, Serialize};
 use tokio::{sync::{
-    watch::{self},
-    Mutex, RwLock, mpsc, OnceCell
+    RwLock, mpsc, OnceCell
 }, fs};
-use tower::Service;
-use turtle::{TurtleTask, Iota, Receiver, Sender, Turtle, TurtleUpdate, TurtleInfo, TurtleCommand, TurtleCommander, TurtleCommandResponse};
+use turtle::{Turtle, TurtleInfo, TurtleCommand, TurtleCommander, TurtleCommandResponse};
+use serde::{Deserialize, Serialize};
+use indoc::formatdoc;
 
-use crate::{blocks::Block, paths::route};
+use crate::blocks::Block;
 
 mod blocks;
 mod names;
@@ -46,7 +39,7 @@ struct SavedState {
 
 struct LiveState {
     turtles: Vec<Arc<RwLock<turtle::Turtle>>>,
-    tasks: Vec<VecDeque<TurtleMineJob>>,
+    tasks: Vec<VecDeque<()>>,
     world: blocks::World,
 }
 

@@ -1,7 +1,5 @@
-use std::rc::Rc;
-
 use crate::{
-    blocks::{Block, World, Position, Direction, Vec3, WorldReadLock}, turtle::TurtleCommand,
+    blocks::{World, Position, Direction, Vec3, WorldReadLock},
 };
 use pathfinding::prelude::astar;
 
