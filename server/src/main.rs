@@ -8,13 +8,13 @@ use axum::{
     routing::{get},
     Router,
 };
-use blocks::{World, };
+use blocks::{World, Position, };
 use log::info;
 use rstar::RTree;
 
 use names::Name;
 use tokio::{sync::{
-    RwLock, mpsc, OnceCell
+    RwLock, mpsc, OnceCell, Mutex
 }, fs};
 use turtle::{Turtle, TurtleCommander};
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,7 @@ mod tasks;
 struct SavedState {
     turtles: Vec<turtle::Turtle>,
     world: RTree<Block>,
+    depots: Vec<Position>,
     //chunkloaders: unimplemented!(),
 }
 
@@ -43,6 +44,7 @@ struct LiveState {
     turtles: Vec<Arc<RwLock<turtle::Turtle>>>,
     tasks: Vec<VecDeque<()>>,
     world: blocks::World,
+    depots: Mutex<Vec<Arc<Mutex<Position>>>>,
 }
 
 impl LiveState {
@@ -51,7 +53,11 @@ impl LiveState {
         for turtle in self.turtles.iter() {
             turtles.push(turtle.read().await.info());
         };
-        SavedState { turtles, world: self.world.tree().await }
+        let mut depots = Vec::new();
+        for depot in self.depots.lock().await.iter() {
+            depots.push(*depot.lock().await);
+        };
+        SavedState { turtles, world: self.world.tree().await, depots }
     }
 
     fn from_save(save: SavedState) -> Self {
@@ -60,7 +66,13 @@ impl LiveState {
             let (tx, rx) = mpsc::channel(1);
             turtles.push(Turtle::with_channel(turtle.name.to_num(), turtle.position, turtle.fuel, turtle.fuel_limit, tx, rx));
         };
-        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: Vec::new(), world: World::from_tree(save.world) }
+        let mut depots = Vec::new();
+        for depot in save.depots {
+            depots.push(Arc::new(Mutex::new(depot)));
+        }
+        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: Vec::new(), world: World::from_tree(save.world),
+            depots: Mutex::new(depots)
+        }
     }
 
     async fn get_turtle(&self, name: u32) -> Option<TurtleCommander> {
@@ -120,15 +132,30 @@ async fn flush(State(state): State<SharedControl>) -> &'static str {
 }
 
 async fn write_to_disk(state: SavedState) -> anyhow::Result<()> {
-    let json = serde_json::to_string_pretty(&state.turtles)?;
-    let bincode = bincode::serialize(&state.world)?;
-    tokio::fs::write(SAVE.get().unwrap().join("turtles.json"), json).await?;
-    tokio::fs::write(SAVE.get().unwrap().join("world.bin"), bincode).await?;
+    let turtles = serde_json::to_string_pretty(&state.turtles)?;
+    let world = bincode::serialize(&state.world)?;
+    let depots = serde_json::to_string_pretty(&state.depots)?;
+    let path = &SAVE.get().unwrap();
+    tokio::fs::write(path.join("turtles.json"), turtles).await?;
+    tokio::fs::write(path.join("depots.json"), depots).await?;
+    tokio::fs::write(path.join("world.bin"), world).await?;
     Ok(())
 }
 
 async fn read_from_disk() -> anyhow::Result<SavedState> {
     let turtles = match tokio::fs::OpenOptions::new()
+        .read(true)
+        .open(SAVE.get().unwrap().join("turtles.json"))
+        .await
+    {
+        tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
+        tokio::io::Result::Err(e) => match e.kind() {
+            ErrorKind::NotFound => Vec::new(),
+            _ => panic!(),
+        },
+    };
+
+    let depots = match tokio::fs::OpenOptions::new()
         .read(true)
         .open(SAVE.get().unwrap().join("turtles.json"))
         .await
@@ -153,5 +180,6 @@ async fn read_from_disk() -> anyhow::Result<SavedState> {
     Ok(SavedState {
         turtles,
         world,
+        depots,
     })
 }

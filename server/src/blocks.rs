@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, ops::Sub};
 
 use nalgebra::Vector3;
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
@@ -124,7 +124,9 @@ impl Position {
         })
     }
 
-
+    pub fn manhattan(self, other: Self) -> i32 {
+        self.pos.sub(other.pos).abs().sum()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Eq, Copy, Debug)]
