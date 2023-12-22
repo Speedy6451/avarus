@@ -4,11 +4,11 @@ use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args, path};
 
 use anyhow::{Error, Ok};
 use axum::{
-    extract::{Path, State},
-    routing::{get, post},
-    Json, Router,
+    extract::{State},
+    routing::{get},
+    Router,
 };
-use blocks::{World, Position, Vec3};
+use blocks::{World, };
 use log::info;
 use rstar::RTree;
 
@@ -16,7 +16,7 @@ use names::Name;
 use tokio::{sync::{
     RwLock, mpsc, OnceCell
 }, fs};
-use turtle::{Turtle, TurtleInfo, TurtleCommand, TurtleCommander, TurtleCommandResponse};
+use turtle::{Turtle, TurtleCommander};
 use serde::{Deserialize, Serialize};
 use indoc::formatdoc;
 
@@ -29,6 +29,8 @@ mod fell;
 mod paths;
 mod safe_kill;
 mod turtle;
+mod turtle_api;
+mod tasks;
 
 #[derive(Serialize, Deserialize)]
 struct SavedState {
@@ -93,17 +95,9 @@ async fn main() -> Result<(), Error> {
     let state = SharedControl::new(RwLock::new(state));
 
     let server = Router::new()
-        .route("/turtle/new", post(create_turtle))
-        .route("/turtle/:id/update", post(command))
-        .route("/turtle/client.lua", get(client))
-        .route("/turtle/:id/setGoal", post(set_goal))
-        .route("/turtle/:id/dig", post(dig))
-        .route("/turtle/:id/cancelTask", post(cancel))
-        .route("/turtle/:id/manual", post(run_command))
-        .route("/turtle/:id/info", get(turtle_info))
         //.route("/turtle/:id/placeUp", get(place_up))
-        .route("/turtle/updateAll", get(update_turtles))
         .route("/flush", get(flush))
+        .nest("/turtle", turtle_api::turtle_api())
         .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", *PORT.get().unwrap()))
@@ -161,139 +155,3 @@ async fn read_from_disk() -> anyhow::Result<SavedState> {
         world,
     })
 }
-
-async fn create_turtle(
-    State(state): State<SharedControl>,
-    Json(req): Json<turtle::TurtleRegister>,
-) -> Json<turtle::TurtleResponse> {
-    let state = &mut state.write().await;
-    let id = state.turtles.len() as u32;
-    let (send, receive) = mpsc::channel(1);
-    state.turtles.push(
-        Arc::new(RwLock::new(
-            turtle::Turtle::with_channel(id, Position::new(req.position, req.facing), req.fuel, req.fuellimit, send,receive)
-    )));
-    state.tasks.push(VecDeque::new());
-    
-
-    info!("new turtle: {id}");
-
-    Json(turtle::TurtleResponse {
-        name: Name::from_num(id).to_str(),
-        id,
-        command: turtle::TurtleCommand::Update,
-    })
-}
-
-async fn place_up(
-    Path(id): Path<u32>,
-    State(state): State<SharedControl>,
-) -> Json<TurtleInfo> {
-    let turtle = state.read().await.get_turtle(id).await.unwrap();
-    let response = turtle.execute(turtle::TurtleCommand::PlaceUp).await;
-
-    Json(response)
-}
-
-async fn run_command(
-    Path(id): Path<u32>,
-    State(state): State<SharedControl>,
-    Json(req): Json<TurtleCommand>,
-) -> Json<TurtleCommandResponse> {
-    let state = state.read().await;
-    let commander = state.get_turtle(id).await.unwrap().clone();
-    drop(state);
-    Json(commander.execute(req).await.ret)
-}
-
-async fn dig(
-    Path(id): Path<u32>,
-    State(state): State<SharedControl>,
-    Json(req): Json<(Vec3, Position, Position)>,
-) -> &'static str {
-    let turtle = state.read().await.get_turtle(id).await.unwrap();
-    let (req, fuel, inventory) = req;
-    //let fuel = Position::new(Vec3::new(-19, 93, 73), blocks::Direction::East);
-    //let inventory = Position::new(Vec3::new(-19, 92, 73), blocks::Direction::East);
-    tokio::spawn(
-        async move {
-            mine::mine(turtle.clone(), req, fuel, inventory).await
-        }
-    );
-
-    "ACK"
-}
-
-async fn set_goal(
-    Path(id): Path<u32>,
-    State(state): State<SharedControl>,
-    Json(req): Json<Position>,
-) -> &'static str {
-    let turtle = state.read().await.get_turtle(id).await.unwrap();
-    tokio::spawn(async move {turtle.goto(req).await.expect("route failed")});
-
-    "ACK"
-}
-
-async fn cancel(
-    Path(id): Path<u32>,
-    State(state): State<SharedControl>,
-) -> &'static str {
-    state.write().await.tasks[id as usize].pop_front();
-
-    "ACK"
-}
-
-async fn update_turtles(State(state): State<SharedControl>) -> &'static str {
-    for turtle in state.read().await.turtles.iter() {
-            turtle.write().await.pending_update = true;
-    }
-
-    "ACK"
-}
-
-async fn turtle_info(
-    Path(id): Path<u32>,
-    State(state): State<SharedControl>,
-) -> Json<turtle::Turtle> {
-    let state = &mut state.read().await;
-    let turtle = &state.turtles[id as usize].read().await;
-
-    let cloned = Turtle::new( 
-        turtle.name.to_num(),
-        turtle.position,
-        turtle.fuel,
-        turtle.fuel_limit,
-    );
-
-    Json(cloned)
-}
-
-async fn command(
-    Path(id): Path<u32>,
-    State(state): State<SharedControl>,
-    Json(req): Json<turtle::TurtleUpdate>,
-) -> Json<turtle::TurtleCommand> {
-    let mut state = &mut state.write().await;
-
-    if id as usize > state.turtles.len() {
-        return Json(turtle::TurtleCommand::Update);
-    }
-
-    Json(
-        turtle::process_turtle_update(id, &mut state, req).await
-        .unwrap_or(turtle::TurtleCommand::Update)
-    )
-}
-
-async fn client() -> String {
-    formatdoc!(r#"
-        local ipaddr = {}
-        local port = "{}"
-        {}"#,
-        include_str!("../ipaddr.txt"),
-        PORT.get().unwrap(),
-        fs::read_to_string("../client/client.lua").await.unwrap(), // TODO: cache handle if bottleneck
-    )
-}
-
