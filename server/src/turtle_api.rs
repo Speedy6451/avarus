@@ -150,7 +150,7 @@ pub(crate) async fn command(
     State(state): State<SharedControl>,
     Json(req): Json<turtle::TurtleUpdate>,
 ) -> Json<turtle::TurtleCommand> {
-    let mut state = &mut state.write().await;
+    let mut state = &mut state.read().await;
 
     if id as usize > state.turtles.len() {
         return Json(turtle::TurtleCommand::Update);

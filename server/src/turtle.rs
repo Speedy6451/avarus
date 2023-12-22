@@ -292,14 +292,14 @@ impl TurtleCommander {
 
 pub(crate) async fn process_turtle_update(
     id: u32,
-    state: &mut LiveState,
+    state: &LiveState,
     update: TurtleUpdate,
 ) -> anyhow::Result<TurtleCommand> {
     let mut  turtle = state
         .turtles
         .get(id as usize)
         .context("nonexisting turtle")?.write().await;
-    let world = &mut state.world;
+    let world = &state.world;
 
     if turtle.pending_update {
         turtle.pending_update = false;
