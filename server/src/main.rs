@@ -31,6 +31,7 @@ use crate::{blocks::Block, paths::route};
 mod blocks;
 mod names;
 mod mine;
+mod fell;
 mod paths;
 mod safe_kill;
 mod turtle;
@@ -233,7 +234,7 @@ async fn set_goal(
     Json(req): Json<Position>,
 ) -> &'static str {
     let turtle = state.read().await.get_turtle(id).await.unwrap();
-    tokio::spawn(async move {turtle.goto(req).await});
+    tokio::spawn(async move {turtle.goto(req).await.expect("route failed")});
 
     "ACK"
 }
@@ -265,7 +266,8 @@ async fn turtle_info(
     let cloned = Turtle::new( 
         turtle.name.to_num(),
         turtle.position,
-        turtle.fuel
+        turtle.fuel,
+        turtle.fuel_limit,
     );
 
     Json(cloned)

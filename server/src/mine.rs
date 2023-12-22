@@ -136,6 +136,7 @@ const USELESS: [&str; 5] = [
     "minecraft:cobblestone",
     "minecraft:cobbled_deepslate",
     "minecraft:rhyolite",
+    //"minecraft:andesite", // TODO: Reach 2k
 ];
 
 /// Things that are desirable
@@ -150,7 +151,7 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
     let mut valuables = Vec::new();
 
     async fn refuel_needed(turtle: &TurtleCommander, volume: i32, fuel: Position) -> Option<()> {
-        Some(if (turtle.fuel().await as f64) < (volume + (fuel.pos-turtle.pos().await.pos).abs().sum()) as f64 * 1.1 {
+        Some(if (turtle.fuel().await as f64) < (2 * volume + (fuel.pos-turtle.pos().await.pos).abs().sum()) as f64 * 1.8 {
             println!("refueling");
             turtle.goto(fuel).await?;
             println!("docked");
@@ -181,6 +182,9 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
             println!("storage rtb");
             turtle.goto(storage).await?;
             dump(turtle.clone()).await;
+            // while we're here
+            turtle.goto(fuel).await?;
+            refuel(turtle.clone()).await;
         }
 
         pos += Vec3::z() * chunk.z;
@@ -222,7 +226,7 @@ async fn refuel(turtle: TurtleCommander) {
         if let TurtleCommandResponse::Failure = re.ret {
             // partial refuel, good enough
             println!("only received {} fuel", turtle.fuel().await);
-            if turtle.fuel().await > 1000 {
+            if turtle.fuel().await > 5000 {
                 break;
             } else {
                 turtle.execute(Wait(15)).await;

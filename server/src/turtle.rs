@@ -100,10 +100,11 @@ impl Default for Turtle {
 }
 
 impl Turtle {
-    pub(crate) fn new(id: u32, position: Position, fuel: usize) -> Self {
+    pub(crate) fn new(id: u32, position: Position, fuel: usize, fuel_limit: usize) -> Self {
         Self {
             name: Name::from_num(id),
             fuel,
+            fuel_limit,
             queued_movement: Vec3::new(0, 0, 0),
             position,
             pending_update: true,

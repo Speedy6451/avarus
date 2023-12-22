@@ -38,3 +38,4 @@ tower-layer = "0.3.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 typetag = "0.2.14"
+ucnlnav = { git = "https://github.com/ucnl/UCNLNav.git", version = "0.1.0" }
