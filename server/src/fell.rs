@@ -3,7 +3,7 @@ use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 use typetag::serde;
 
-use crate::{blocks::{Vec3, Position, Direction}, turtle::TurtleCommander, tasks::Task, depot::Depots, mine::fill};
+use crate::{blocks::{Vec3, Position, Direction}, turtle::TurtleCommander, tasks::{Task, TaskState}, depot::Depots, mine::fill};
 
 pub async fn fell_tree(turtle: TurtleCommander, bottom: Vec3) -> Option<()> {
     let mut log = bottom;
@@ -73,12 +73,12 @@ impl Task for TreeFarm {
         })
     }
 
-    fn poll(&mut self) -> Option<Position>  {
+    fn poll(&mut self) -> TaskState  {
         let elapsed = OffsetDateTime::now_utc() - self.last_sweep;
         if elapsed.whole_minutes() <= 16 {
-            return None;
+            return TaskState::Waiting;
         }
         self.last_sweep = OffsetDateTime::now_utc();
-        Some(Position::new(self.position, Direction::North)) // request a turtle
+        TaskState::Ready(Position::new(self.position, Direction::North)) // request a turtle
     }
 }

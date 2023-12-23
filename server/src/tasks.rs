@@ -1,21 +1,22 @@
-use std::sync::Arc;
-
-use erased_serde::serialize_trait_object;
 use log::info;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, MutexGuard, RwLock, OwnedMutexGuard};
 use tokio::task::JoinHandle;
 
-use crate::LiveState;
 use crate::names::Name;
-use crate::{turtle::{self, TurtleCommander}, blocks::Position};
+use crate::{turtle::TurtleCommander, blocks::Position};
 
-#[typetag::serde(tag = "type")]
+pub enum TaskState {
+    Ready(Position),
+    Waiting,
+    Complete,
+}
+
+#[typetag::serde(tag = "task")]
 pub trait Task: Send + Sync {
     /// Execute the task
     fn run(&mut self, turtle: TurtleCommander) -> JoinHandle<()>;
     /// Return Some if the task should be scheduled
-    fn poll(&mut self) -> Option<Position>;
+    fn poll(&mut self) -> TaskState;
 }
 
 #[derive(Serialize, Deserialize)]
@@ -67,7 +68,8 @@ impl Scheduler {
         }
 
         for task in &mut self.tasks {
-            if let Some(position) = task.poll() {
+            let poll = task.poll();
+            if let TaskState::Ready(position) = poll {
                 let closest_turtle = match free_turtles.iter_mut().zip(turtle_positions.iter()).min_by_key( |(_,p)| {
                     p.manhattan(position)
                 }) {
@@ -76,6 +78,9 @@ impl Scheduler {
                 };
 
                 closest_turtle.1 = Some(task.run(closest_turtle.0.clone()));
+            }
+            if let TaskState::Complete = poll {
+                // TODO: removal
             }
         }
         

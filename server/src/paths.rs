@@ -1,7 +1,10 @@
 use crate::{
     blocks::{World, Position, Direction, Vec3, WorldReadLock},
 };
+use log::trace;
 use pathfinding::prelude::astar;
+
+const LOOKUP_LIMIT: usize = 1_000_000;
 
 pub async fn route_facing(from: Position, to: Vec3, world: &World) -> Option<Vec<Position>> {
     let facing = |p: &Position| {
@@ -23,18 +26,33 @@ pub async fn route(from: Position, to: Position, world: &World) -> Option<Vec<Po
     route_to(from, to.pos, |p| p == &to, world).await
 }
 
-async fn route_to<D>(from: Position, to: Vec3, done: D, world: &World) -> Option<Vec<Position>>
+async fn route_to<D>(from: Position, to: Vec3, mut done: D, world: &World) -> Option<Vec<Position>>
 where D: FnMut(&Position) -> bool {
     // lock once, we'll be doing a lot of lookups
     let world = world.clone().lock().await;
+
+    let mut limit = LOOKUP_LIMIT;
 
     let route = astar(
         &from,
         move |p| next(p, &world),
         |p1| (p1.pos - &to).abs().sum() as u32,
-        done,
+        |p| {
+            limit -= 1;
+            if limit == 0 {
+                return true
+            } else {
+                done(p)
+            }
+        },
     )?;
-    Some(route.0)
+
+    trace!("scanned {} states", LOOKUP_LIMIT-limit);
+    if limit != 0 {
+        Some(route.0)
+    } else {
+        None
+    }
 }
 
 fn next(from: &Position, world: &WorldReadLock) -> Vec<(Position, u32)> {
@@ -94,7 +112,7 @@ const GARBAGE: [&str; 11] = [
 ];
 
 /// time taken to go through uncharted territory (in turtle. calls)
-const UNKNOWN: Option<u32> = Some(1);
+const UNKNOWN: Option<u32> = Some(2);
 
 // time to go somewhere
 pub fn difficulty(name: &str) -> Option<u32> {
@@ -104,5 +122,5 @@ pub fn difficulty(name: &str) -> Option<u32> {
     if GARBAGE.contains(&name) {
         return Some(2);
     };
-    Some(140) // providing a value here means that tunneling through builds is possible (bad)
+    None
 }
