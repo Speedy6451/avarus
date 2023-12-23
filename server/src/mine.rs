@@ -1,6 +1,9 @@
 use log::{info, warn};
+use serde::{Serialize, Deserialize};
+use tokio::task::JoinHandle;
+use typetag::serde;
 
-use crate::{blocks::{Position, Vec3}, turtle::{TurtleCommand, TurtleCommander, TurtleCommandResponse, InventorySlot}, paths::TRANSPARENT};
+use crate::{blocks::{Position, Vec3, Direction}, turtle::{TurtleCommand, TurtleCommander, TurtleCommandResponse, InventorySlot}, paths::TRANSPARENT, tasks::{Task, TaskState}};
 use TurtleCommand::*;
 
 /// Things to leave in the field (not worth fuel)
@@ -18,24 +21,19 @@ const VALUABLE: [&str; 1] = [
     "ore",
 ];
 
-pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: Position) -> Option<()> {
-    let chunk = Vec3::new(4,4,4);
+pub async fn mine(turtle: TurtleCommander, pos: Vec3, chunk: Vec3) -> Option<()> {
     let volume = chunk.x * chunk.y * chunk.z;
     let mut pos = pos;
     let mut valuables = Vec::new();
 
-    async fn refuel_needed(turtle: &TurtleCommander, volume: i32, fuel: Position) -> Option<()> {
-        Some(if (turtle.fuel() as f64) < (2 * volume + (fuel.pos-turtle.pos().await.pos).abs().sum()) as f64 * 1.8 {
-            let name = turtle.name().to_str();
-            info!("{name}: refueling");
-            turtle.goto(fuel).await?;
-            info!("{name}: docked");
-            refuel(turtle.clone()).await;
-        })
+    async fn refuel_needed(turtle: &TurtleCommander, volume: i32) {
+        if (turtle.fuel() as i32) < 2 * volume + 4000 {
+            turtle.dock().await;
+        }
     }
 
     loop {
-        refuel_needed(&turtle, volume, fuel).await?;
+        refuel_needed(&turtle, volume).await;
 
         mine_chunk(turtle.clone(), pos, chunk).await?;
 
@@ -50,16 +48,12 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, fuel: Position, storage: P
             observe(turtle.clone(), block).await;
             valuables.append(&mut near_valuables(&turtle, near.pos, Vec3::new(2,2,2)).await);
 
-            refuel_needed(&turtle, volume, fuel).await?;
+            refuel_needed(&turtle, volume).await;
         }
 
         if dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await > 12 {
             info!("storage rtb");
-            turtle.goto(storage).await?;
-            dump(turtle.clone()).await;
-            // while we're here
-            turtle.goto(fuel).await?;
-            refuel(turtle.clone()).await;
+            turtle.dock().await;
         }
 
         pos += Vec3::z() * chunk.z;
@@ -178,4 +172,35 @@ async fn observe(turtle: TurtleCommander, pos: Vec3) -> Option<()> {
     }
 
     Some(())
+}
+
+#[derive(Serialize, Deserialize,Clone)]
+pub struct Mine {
+    pos: Vec3,
+    chunk: Vec3,
+    #[serde(skip_deserializing)]
+    miners: usize, // Default is false
+}
+
+impl Mine {
+    pub fn new(pos: Vec3, chunk: Vec3) -> Self { Self { pos, chunk, miners: 0 } }
+}
+
+#[serde]
+impl Task for Mine {
+    fn run(&mut self,turtle:TurtleCommander) -> JoinHandle<()>  {
+        self.miners += 1;
+        let frozen = self.clone();
+        tokio::spawn(async move {
+            mine(turtle,frozen.pos, frozen.chunk).await.unwrap();
+        })
+        // TODO: mutability after spawn
+    }
+
+    fn poll(&mut self) -> TaskState {
+        if self.miners < 1 {
+            return TaskState::Ready(Position::new(self.pos, Direction::North));
+        }
+        TaskState::Waiting
+    }
 }

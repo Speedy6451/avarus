@@ -2,6 +2,7 @@ use log::trace;
 use tokio;
 use blocks::Vec3;
 use crate::fell::TreeFarm;
+use crate::mine::Mine;
 use crate::turtle::TurtleCommandResponse;
 use crate::turtle::TurtleCommander;
 use crate::turtle::TurtleInfo;
@@ -34,12 +35,12 @@ pub fn turtle_api() -> Router<SharedControl> {
         .route("/:id/update", post(command))
         .route("/client.lua", get(client))
         .route("/:id/setGoal", post(set_goal))
-        .route("/:id/dig", post(dig))
         .route("/:id/cancelTask", post(cancel))
         .route("/:id/manual", post(run_command))
         .route("/:id/dock", post(dock))
         .route("/:id/info", get(turtle_info))
         .route("/createTreeFarm", post(fell))
+        .route("/createMine", post(dig))
         .route("/registerDepot", post(new_depot))
         .route("/pollScheduler", get(poll))
         .route("/updateAll", get(update_turtles))
@@ -101,19 +102,12 @@ pub(crate) async fn run_command(
 }
 
 pub(crate) async fn dig(
-    Path(id): Path<u32>,
     State(state): State<SharedControl>,
-    Json(req): Json<(Vec3, Position, Position)>,
+    Json(req): Json<Vec3>,
 ) -> &'static str {
-    let turtle = state.read().await.get_turtle(id).await.unwrap();
-    let (req, fuel, inventory) = req;
-    //let fuel = Position::new(Vec3::new(-19, 93, 73), blocks::Direction::East);
-    //let inventory = Position::new(Vec3::new(-19, 92, 73), blocks::Direction::East);
-    tokio::spawn(
-        async move {
-            mine::mine(turtle.clone(), req, fuel, inventory).await
-        }
-    );
+    let schedule = &mut state.write().await.tasks;
+    let chunk = Vec3::new(4,4,4);
+    schedule.add_task(Box::new(Mine::new(req,chunk)));
 
     "ACK"
 }

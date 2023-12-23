@@ -102,7 +102,6 @@ impl TreeFarm {
             let near = turtle.goto_adjacent(tree).await?;
             turtle.execute(TurtleCommand::Select(sapling)).await;
             turtle.execute(near.place(tree)?).await;
-            fell_tree(turtle.clone(), tree).await?;
         }
 
         Some(())
@@ -110,12 +109,22 @@ impl TreeFarm {
 
     pub async fn build(&self, turtle: TurtleCommander) -> Option<()> {
         let trees = self.size.x * self.size.y * self.size.z;
-        turtle.dock().await;
+        let mut soil_to_lay = Vec::new();
         for tree in 0..trees {
             let index = fill(self.size, tree);
             let offset = index.component_mul(&Vec3::new(2, 32, 2));
             let tree = self.position + offset;
+            let soil = tree - Vec3::y();
+            if turtle.world().get(soil).await.map_or_else(|| true, |b| b.name.contains("dirt")) {
+                soil_to_lay.push(soil);
+            }
+        }
+
+        for block in soil_to_lay {
+            let near = turtle.goto_adjacent(block).await?;
             // TODO: item management
+            //turtle.execute(TurtleCommand::Select(soil)).await;
+            turtle.execute(near.place(block)?).await;
         }
 
         Some(())
