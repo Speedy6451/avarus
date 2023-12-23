@@ -17,7 +17,7 @@ use names::Name;
 use tasks::Scheduler;
 use tokio::{sync::{
     RwLock, mpsc, OnceCell, Mutex
-}, fs};
+}, fs, time::Instant};
 use turtle::{Turtle, TurtleCommander};
 use serde::{Deserialize, Serialize};
 use indoc::formatdoc;
@@ -175,6 +175,7 @@ struct LiveState {
     tasks: Scheduler,
     world: blocks::World,
     depots: Depots,
+    started: Instant,
 }
 
 impl LiveState {
@@ -197,6 +198,7 @@ impl LiveState {
             
         Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: scheduler, world: World::from_tree(save.world),
             depots,
+            started: Instant::now(),
         }
     }
 

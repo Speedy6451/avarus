@@ -38,7 +38,7 @@ use super::paths::route;
 /// Time (ms) to wait for a command before letting a turtle go idle
 const COMMAND_TIMEOUT:  u64 = 0o372;
 /// Time (s) between turtle polls when idle
-const IDLE_TIME: u32 = 3;
+pub const IDLE_TIME: u32 = 3;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Turtle {
@@ -314,16 +314,16 @@ pub(crate) async fn process_turtle_update(
     id: u32,
     state: &LiveState,
     update: TurtleUpdate,
-) -> anyhow::Result<TurtleCommand> {
+) -> Option<TurtleCommand> {
     let mut  turtle = state
         .turtles
         .get(id as usize)
-        .context("nonexisting turtle")?.write().await;
+        .context("nonexisting turtle").unwrap().write().await;
     let world = &state.world;
 
     if turtle.pending_update {
         turtle.pending_update = false;
-        return Ok(TurtleCommand::Update);
+        return Some(TurtleCommand::Update);
     }
 
     if turtle.fuel > update.fuel {
@@ -376,12 +376,12 @@ pub(crate) async fn process_turtle_update(
             }
             turtle.queued_movement = cmd.unit(turtle.position.dir);
             info!("{}: {cmd:?}", turtle.name.to_str());
-            return Ok(cmd);
+            return Some(cmd);
         }
     }
 
     trace!("{} idle, connected", turtle.name.to_str());
-    Ok(TurtleCommand::Wait(IDLE_TIME))
+    None
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

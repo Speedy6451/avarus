@@ -1,8 +1,10 @@
 use log::trace;
 use tokio;
 use blocks::Vec3;
+use tokio::time::Instant;
 use crate::fell::TreeFarm;
 use crate::mine::Mine;
+use crate::turtle::IDLE_TIME;
 use crate::turtle::TurtleCommandResponse;
 use crate::turtle::TurtleCommander;
 use crate::turtle::TurtleInfo;
@@ -28,6 +30,10 @@ use axum::Router;
 use indoc::formatdoc;
 use crate::PORT;
 use tokio::fs;
+
+/// Time (s) after boot to start allocating turtles to tasks
+/// too short of a time could make fast-booting turtles do far away tasks over closer ones
+const STARTUP_ALLOWANCE: f64 = 4.0;
 
 pub fn turtle_api() -> Router<SharedControl> {
     Router::new()
@@ -193,16 +199,29 @@ pub(crate) async fn command(
     Json(req): Json<turtle::TurtleUpdate>,
 ) -> Json<turtle::TurtleCommand> {
     trace!("reply from turtle {id}: {req:?}");
-    let mut state = &mut state.read().await;
+    let state_guard = state.clone().read_owned().await;
 
-    if id as usize > state.turtles.len() {
+    if id as usize > state_guard.turtles.len() {
         return Json(turtle::TurtleCommand::Update);
     }
 
-    Json(
-        turtle::process_turtle_update(id, &mut state, req).await
-        .unwrap_or(turtle::TurtleCommand::Update)
-    )
+    let command = turtle::process_turtle_update(id, &state_guard, req).await;
+
+    let command = match command {
+        Some(command) => command,
+        None => {
+            tokio::spawn(async move {
+                let state = &state.clone();
+                if Instant::elapsed(&state.clone().read().await.started).as_secs_f64() > STARTUP_ALLOWANCE {
+                    let schedule = &mut state.write().await.tasks;
+                    schedule.poll().await;
+                }
+            });
+            turtle::TurtleCommand::Wait(IDLE_TIME)
+        },
+    };
+
+    Json(command)
 }
 
 pub(crate) async fn client() -> String {
