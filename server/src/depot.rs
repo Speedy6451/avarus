@@ -33,7 +33,7 @@ impl Depots {
         // dump inventory
         for i in 1..=16 {
             turtle.execute(Select(i)).await;
-            turtle.execute(DropFront(64)).await;
+            turtle.execute(DropDown(64)).await;
         }
 
         // refuel
@@ -52,6 +52,12 @@ impl Depots {
                     turtle.execute(Wait(15)).await;
                 }
             }
+        }
+
+        // lava bucket fix
+        for i in 1..=16 {
+            turtle.execute(Select(i)).await;
+            turtle.execute(DropDown(64)).await;
         }
         
         turtle.execute(Backward(1)).await;

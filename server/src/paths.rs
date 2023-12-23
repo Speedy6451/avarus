@@ -79,7 +79,7 @@ pub const TRANSPARENT: [&str; 3] = [
 ];
 
 /// Blocks that are fine to tunnel through
-const GARBAGE: [&str; 8] = [
+const GARBAGE: [&str; 11] = [
     "minecraft:stone",
     "minecraft:dirt",
     "minecraft:andesite",
@@ -88,10 +88,13 @@ const GARBAGE: [&str; 8] = [
     "minecraft:sandstone",
     "minecraft:deepslate",
     "twigs:rhyolite",
+    "minecraft:spruce_leaves",
+    "minecraft:oak_leaves",
+    "traverse:fir_leaves",
 ];
 
 /// time taken to go through uncharted territory (in turtle. calls)
-const UNKNOWN: Option<u32> = Some(2);
+const UNKNOWN: Option<u32> = Some(1);
 
 // time to go somewhere
 pub fn difficulty(name: &str) -> Option<u32> {
@@ -101,5 +104,5 @@ pub fn difficulty(name: &str) -> Option<u32> {
     if GARBAGE.contains(&name) {
         return Some(2);
     };
-    None
+    Some(140) // providing a value here means that tunneling through builds is possible (bad)
 }

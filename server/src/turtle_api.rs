@@ -1,3 +1,4 @@
+use log::trace;
 use tokio;
 use blocks::Vec3;
 use crate::fell::TreeFarm;
@@ -197,6 +198,7 @@ pub(crate) async fn command(
     State(state): State<SharedControl>,
     Json(req): Json<turtle::TurtleUpdate>,
 ) -> Json<turtle::TurtleCommand> {
+    trace!("reply from turtle {id}: {req:?}");
     let mut state = &mut state.read().await;
 
     if id as usize > state.turtles.len() {
