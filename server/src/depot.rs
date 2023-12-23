@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::warn;
+use log::{warn, info};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{blocks::Position, turtle::TurtleCommander};
@@ -27,7 +27,7 @@ impl Depots {
     }
 
     pub async fn dock(&self, turtle: TurtleCommander) -> Option<usize> {
-        let depot = self.nearest(turtle.pos().await).await?;
+        let depot = self.clone().nearest(turtle.pos().await).await?;
         turtle.goto(*depot).await?;
 
         // dump inventory
@@ -59,6 +59,11 @@ impl Depots {
         drop(depot); // assumes that the turtle will very quickly leave
 
         Some(turtle.fuel())
+    }
+
+    pub async fn add(&self, pos: Position) {
+        info!("new depot at {pos:?}");
+        self.depots.lock().await.push(Arc::new(Mutex::new(pos)))
     }
 
     pub fn from_vec(vec: Vec<Position>) -> Self {

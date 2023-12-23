@@ -357,7 +357,7 @@ pub(crate) async fn process_turtle_update(
     let info = TurtleInfo::from_update(update, turtle.name.clone(), turtle.position.clone());
 
     if let TurtleCommandResponse::Failure = info.ret {
-        warn!("{} command failure", turtle.name.to_str());
+        warn!("{}: command failure", turtle.name.to_str());
     }
 
     if let Some(send) = turtle.callback.take() {
@@ -385,7 +385,7 @@ pub(crate) async fn process_turtle_update(
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub(crate) enum TurtleCommand {
+pub enum TurtleCommand {
     Wait(u32),
     Forward(u32),
     Backward(u32),

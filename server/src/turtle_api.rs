@@ -1,5 +1,6 @@
 use tokio;
 use blocks::Vec3;
+use crate::fell::TreeFarm;
 use crate::turtle::TurtleCommandResponse;
 use crate::turtle::TurtleCommander;
 use crate::turtle::TurtleInfo;
@@ -35,7 +36,11 @@ pub fn turtle_api() -> Router<SharedControl> {
         .route("/:id/dig", post(dig))
         .route("/:id/cancelTask", post(cancel))
         .route("/:id/manual", post(run_command))
+        .route("/:id/dock", post(dock))
         .route("/:id/info", get(turtle_info))
+        .route("/createTreeFarm", post(fell))
+        .route("/registerDepot", post(new_depot))
+        .route("/pollScheduler", get(poll))
         .route("/updateAll", get(update_turtles))
 }
 
@@ -73,6 +78,16 @@ pub(crate) async fn place_up(
     Json(response)
 }
 
+pub(crate) async fn dock(
+    Path(id): Path<u32>,
+    State(state): State<SharedControl>,
+) -> Json<usize> {
+    let state = state.read().await;
+    let commander = state.get_turtle(id).await.unwrap().clone();
+    drop(state);
+    Json(commander.dock().await.unwrap())
+}
+
 pub(crate) async fn run_command(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
@@ -102,12 +117,42 @@ pub(crate) async fn dig(
     "ACK"
 }
 
+pub(crate) async fn new_depot(
+    State(state): State<SharedControl>,
+    Json(req): Json<Position>,
+) -> &'static str {
+    let depots = &state.read().await.depots;
+    depots.add(req).await;
+
+    "ACK"
+}
+
+pub(crate) async fn poll(
+    State(state): State<SharedControl>,
+) -> &'static str {
+    let schedule = &mut state.write().await.tasks;
+    schedule.poll().await;
+
+    "ACK"
+}
+
+pub(crate) async fn fell(
+    State(state): State<SharedControl>,
+    Json(req): Json<Vec3>,
+) -> &'static str {
+    let schedule = &mut state.write().await.tasks;
+    schedule.add_task(Box::new(TreeFarm::new(req)));
+
+    "ACK"
+}
+
 pub(crate) async fn set_goal(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
     Json(req): Json<Position>,
 ) -> &'static str {
-    let turtle = state.read().await.get_turtle(id).await.unwrap();
+    let turtle = state.read().await.get_turtle(id).await.unwrap().clone();
+    drop(state);
     tokio::spawn(async move {turtle.goto(req).await.expect("route failed")});
 
     "ACK"

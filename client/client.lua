@@ -195,9 +195,10 @@ repeat
     drawui(command, args, backoff)
 
     local ret = nil
+    local err = nil
 
     if command then
-        ret = commands[command](args)
+        ret, err = commands[command](args)
     end
 
     if command == "Update" and ret == false then
@@ -212,6 +213,12 @@ repeat
             ret_table = "Success"
         else
             ret_table = "Failure"
+            term.setCursorPos(1,11)
+            term.clearLine()
+            term.setTextColor(colors.white)
+            term.write("error: ")
+            term.setTextColor(colors.red)
+            print(err)
         end
     elseif ret then
         ret_table = ret

@@ -115,7 +115,7 @@ async fn read_from_disk() -> anyhow::Result<LiveState> {
 
     let depots = match tokio::fs::OpenOptions::new()
         .read(true)
-        .open(SAVE.get().unwrap().join("turtles.json"))
+        .open(SAVE.get().unwrap().join("depots.json"))
         .await
     {
         tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
@@ -127,7 +127,7 @@ async fn read_from_disk() -> anyhow::Result<LiveState> {
 
     let scheduler = match tokio::fs::OpenOptions::new()
         .read(true)
-        .open(SAVE.get().unwrap().join("scheduler.json"))
+        .open(SAVE.get().unwrap().join("tasks.json"))
         .await
     {
         tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,

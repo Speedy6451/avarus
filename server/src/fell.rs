@@ -22,16 +22,24 @@ pub async fn fell_tree(turtle: TurtleCommander, bottom: Vec3) -> Option<()> {
 const SWEEP_DELAY: usize = 16;
 
 #[derive(Serialize, Deserialize, Clone)]
-struct TreeFarm {
+pub struct TreeFarm {
     position: Vec3,
     size: Vec3,
     last_sweep: OffsetDateTime,
 }
 
 impl TreeFarm {
+    pub fn new(position: Vec3) -> Self {
+        Self {
+            position,
+            size: Vec3::new(5,1,2),
+            last_sweep: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
     pub async fn sweep(&self, turtle: TurtleCommander) -> Option<()> {
         let trees = self.size.x * self.size.y * self.size.z;
-        turtle.dock().await;
+        //turtle.dock().await;
         for tree in 0..trees {
             let index = fill(self.size, tree);
             let offset = index.component_mul(&Vec3::new(2, 32, 2));

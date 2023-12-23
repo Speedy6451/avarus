@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use erased_serde::serialize_trait_object;
+use log::info;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, MutexGuard, RwLock, OwnedMutexGuard};
 use tokio::task::JoinHandle;
@@ -44,6 +45,7 @@ impl Scheduler {
     }
 
     pub fn add_task(&mut self, task: Box<dyn Task>) {
+        info!("new task");
         self.tasks.push(task);
     }
 
