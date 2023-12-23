@@ -1,10 +1,10 @@
 use crate::{
     blocks::{World, Position, Direction, Vec3, WorldReadLock},
 };
-use log::trace;
+use log::{trace, error};
 use pathfinding::prelude::astar;
 
-const LOOKUP_LIMIT: usize = 1_000_000;
+const LOOKUP_LIMIT: usize = 10_000_000;
 
 pub async fn route_facing(from: Position, to: Vec3, world: &World) -> Option<Vec<Position>> {
     let facing = |p: &Position| {
@@ -51,6 +51,7 @@ where D: FnMut(&Position) -> bool {
     if limit != 0 {
         Some(route.0)
     } else {
+        error!("pathfinding timed out");
         None
     }
 }

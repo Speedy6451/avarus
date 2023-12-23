@@ -105,6 +105,17 @@ impl Position {
         }
     }
 
+    /// Command to place
+    /// Assumes that "to" can be reached from your position
+    pub fn place(&self, to: Vec3) -> Option<TurtleCommand> {
+        Some(match self.dig(to)? {
+            TurtleCommand::Dig => TurtleCommand::Place,
+            TurtleCommand::DigDown => TurtleCommand::PlaceDown,
+            TurtleCommand::DigUp => TurtleCommand::PlaceUp,
+            _ => None?
+        })
+    }
+
     /// Command to dig 
     /// Assumes that "to" can be dug from your position
     pub fn dig(&self, to: Vec3) -> Option<TurtleCommand> {

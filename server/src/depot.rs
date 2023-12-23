@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::{warn, info};
+use log::{warn, info, trace};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{blocks::Position, turtle::TurtleCommander};
@@ -28,6 +28,7 @@ impl Depots {
 
     pub async fn dock(&self, turtle: TurtleCommander) -> Option<usize> {
         let depot = self.clone().nearest(turtle.pos().await).await?;
+        trace!("depot at {depot:?}");
         turtle.goto(*depot).await?;
 
         // dump inventory
@@ -39,7 +40,7 @@ impl Depots {
         // refuel
         turtle.execute(Select(1)).await;
         let limit = turtle.fuel_limit();
-        while turtle.fuel() < limit {
+        while turtle.fuel() + 1000 < limit {
             turtle.execute(SuckFront(64)).await;
             let re = turtle.execute(Refuel).await;
             turtle.execute(DropDown(64)).await;

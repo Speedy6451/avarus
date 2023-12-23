@@ -1,9 +1,12 @@
+use std::ops::Mul;
+
+use log::{trace, warn, info};
 use serde::{Serialize, Deserialize};
 use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 use typetag::serde;
 
-use crate::{blocks::{Vec3, Position, Direction}, turtle::TurtleCommander, tasks::{Task, TaskState}, depot::Depots, mine::fill};
+use crate::{blocks::{Vec3, Position, Direction}, turtle::{TurtleCommander, TurtleCommand, TurtleCommandResponse, InventorySlot}, tasks::{Task, TaskState}, depot::Depots, mine::fill};
 
 pub async fn fell_tree(turtle: TurtleCommander, bottom: Vec3) -> Option<()> {
     let mut log = bottom;
@@ -38,12 +41,67 @@ impl TreeFarm {
     }
 
     pub async fn sweep(&self, turtle: TurtleCommander) -> Option<()> {
-        let trees = self.size.x * self.size.y * self.size.z;
-        //turtle.dock().await;
+        let trees = self.size.product();
+        let spacing = Vec3::new(2, 32, 2);
+        turtle.dock().await;
         for tree in 0..trees {
             let index = fill(self.size, tree);
-            let offset = index.component_mul(&Vec3::new(2, 32, 2));
+            let offset = index.component_mul(&spacing);
+            trace!("tree {tree}; {offset:?}");
             let tree = self.position + offset;
+            fell_tree(turtle.clone(), tree).await?;
+        }
+
+        // sweep across floor (not upper levels) to get saplings
+        // this goes one block past the far corner and to the near corner
+        let area = self.size.xz().component_mul(&spacing.xz()).product();
+        for tile in 0..area {
+            let offset = fill(self.size.component_mul(&Vec3::new(spacing.x, 1, spacing.z)), tile);
+            let tile = self.position + offset;
+            turtle.goto_adjacent(tile-Vec3::y()).await;
+            turtle.execute(TurtleCommand::SuckFront(64)).await;
+        }
+
+        // scan inventory for saplings
+        let mut saplings = Vec::new();
+        let mut needed = trees;
+        for slot in 1..=16 {
+            if let TurtleCommandResponse::Item(i) = turtle.execute(TurtleCommand::ItemInfo(slot)).await.ret {
+                if i.name.contains("sapling") {
+                    needed -= i.count as i32;
+                    saplings.push((slot,i));
+                }
+                if needed <= 0 { break; }
+            }
+        }
+
+        if needed > 0 {
+            warn!("incomplete wood harvest, {needed} saplings short");
+        }
+
+        fn pop_item(vec: &mut Vec<(u32, InventorySlot)>) -> Option<u32> {
+            let mut slot = vec.pop()?;
+            let index = slot.0;
+            slot.1.count -= 1;
+            if slot.1.count > 0 {
+                vec.push(slot);
+            }
+            Some(index)
+        }
+
+        // plant saplings
+        for tree in 0..trees {
+            let sapling = match pop_item(&mut saplings) {
+                Some(slot) => slot,
+                None => break,
+            };
+
+            let index = fill(self.size, tree);
+            let offset = index.component_mul(&spacing);
+            let tree = self.position + offset;
+            let near = turtle.goto_adjacent(tree).await?;
+            turtle.execute(TurtleCommand::Select(sapling)).await;
+            turtle.execute(near.place(tree)?).await;
             fell_tree(turtle.clone(), tree).await?;
         }
 
