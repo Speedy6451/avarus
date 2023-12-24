@@ -52,8 +52,8 @@ pub(crate) async fn serve(server: Router, listener: TcpListener) -> Sender<()> {
             loop {
                 tokio::select! {
                     result = conn.as_mut() => {
-                        if result.is_err() {
-                            error!("req failed");
+                        if let Err(e) = result {
+                            error!("req failed: {e}");
                         }
                         break;
                     }

@@ -211,8 +211,17 @@ impl TurtleCommander {
         self.world.clone()
     }
 
-    pub async fn dock(&self) -> Option<usize> {
-        Depots::dock(&self.depots, self.to_owned()).await
+    pub async fn dock(&self) -> usize {
+        loop {
+            let res = Depots::dock(&self.depots, self.to_owned()).await;
+            if let Some(fuel) = res {
+                return fuel;
+            }
+        }
+    }
+
+    pub async fn try_dock(&self) -> Option<usize> {
+        self.depots.dock(self.clone()).await 
     }
 
     pub async fn goto(&self, pos: Position) -> Option<()> {
@@ -226,6 +235,8 @@ impl TurtleCommander {
             // easiest way to not eventually take over all memory
             let routing = timeout(Duration::from_secs(2), route(recent, pos, &world));
             let route = routing.await.ok()??;
+
+            trace!("using route: {route:#?}");
 
             let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| from.difference(**to).unwrap()).collect();
 

@@ -47,7 +47,7 @@ impl Depots {
             if let TurtleCommandResponse::Failure = re.ret {
                 // partial refuel, good enough
                 warn!("only received {} fuel", turtle.fuel());
-                if turtle.fuel() > 5000 {
+                if turtle.fuel() > 1500 {
                     break;
                 } else {
                     turtle.execute(Wait(15)).await;

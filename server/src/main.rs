@@ -71,6 +71,7 @@ async fn main() -> Result<(), Error> {
 
     info!("writing");
     write_to_disk(&*state.read().await).await?;
+    info!("written");
 
     server.closed().await;
 

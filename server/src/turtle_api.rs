@@ -93,7 +93,7 @@ pub(crate) async fn dock(
     let state = state.read().await;
     let commander = state.get_turtle(id).await.unwrap().clone();
     drop(state);
-    Json(commander.dock().await.unwrap())
+    Json(commander.dock().await)
 }
 
 pub(crate) async fn run_command(
@@ -163,7 +163,7 @@ pub(crate) async fn cancel(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
 ) -> &'static str {
-    //state.write().await.tasks
+    state.write().await.tasks.cancel(Name::from_num(id)).await;
 
     "ACK"
 }
@@ -211,11 +211,11 @@ pub(crate) async fn command(
         Some(command) => command,
         None => {
             tokio::spawn(async move {
-                let state = &state.clone();
-                if Instant::elapsed(&state.clone().read().await.started).as_secs_f64() > STARTUP_ALLOWANCE {
-                    let schedule = &mut state.write().await.tasks;
-                    schedule.poll().await;
-                }
+                //let state = &state.clone();
+                //if Instant::elapsed(&state.clone().read().await.started).as_secs_f64() > STARTUP_ALLOWANCE {
+                //    let schedule = &mut state.write().await.tasks;
+                //    schedule.poll().await;
+                //}
             });
             turtle::TurtleCommand::Wait(IDLE_TIME)
         },

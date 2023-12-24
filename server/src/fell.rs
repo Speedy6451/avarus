@@ -6,7 +6,7 @@ use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 use typetag::serde;
 
-use crate::{blocks::{Vec3, Position, Direction}, turtle::{TurtleCommander, TurtleCommand, TurtleCommandResponse, InventorySlot}, tasks::{Task, TaskState}, depot::Depots, mine::fill};
+use crate::{blocks::{Vec3, Position, Direction}, turtle::{TurtleCommander, TurtleCommand, TurtleCommandResponse, InventorySlot}, tasks::{Task, TaskState}, depot::Depots, mine::fill, paths::TRANSPARENT};
 
 pub async fn fell_tree(turtle: TurtleCommander, bottom: Vec3) -> Option<()> {
     let mut log = bottom;
@@ -22,7 +22,7 @@ pub async fn fell_tree(turtle: TurtleCommander, bottom: Vec3) -> Option<()> {
 }
 
 /// Minutes before checking
-const SWEEP_DELAY: usize = 16;
+const SWEEP_DELAY: i64 = 16;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TreeFarm {
@@ -91,17 +91,19 @@ impl TreeFarm {
 
         // plant saplings
         for tree in 0..trees {
-            let sapling = match pop_item(&mut saplings) {
-                Some(slot) => slot,
-                None => break,
-            };
-
             let index = fill(self.size, tree);
             let offset = index.component_mul(&spacing);
             let tree = self.position + offset;
-            let near = turtle.goto_adjacent(tree).await?;
-            turtle.execute(TurtleCommand::Select(sapling)).await;
-            turtle.execute(near.place(tree)?).await;
+
+            if !turtle.world().occupied(tree).await {
+                let sapling = match pop_item(&mut saplings) {
+                    Some(slot) => slot,
+                    None => break,
+                };
+                let near = turtle.goto_adjacent(tree).await?;
+                turtle.execute(TurtleCommand::Select(sapling)).await;
+                turtle.execute(near.place(tree)?).await;
+            }
         }
 
         Some(())
@@ -142,7 +144,7 @@ impl Task for TreeFarm {
 
     fn poll(&mut self) -> TaskState  {
         let elapsed = OffsetDateTime::now_utc() - self.last_sweep;
-        if elapsed.whole_minutes() <= 16 {
+        if elapsed.whole_minutes() <= SWEEP_DELAY {
             return TaskState::Waiting;
         }
         self.last_sweep = OffsetDateTime::now_utc();

@@ -37,12 +37,15 @@ impl Default for Scheduler {
 
 impl Scheduler {
     /// Add a new turtle to the scheduler
-    /// Whether or not the turtle is already in the scheduler is not verified
     pub fn add_turtle(&mut self, turtle: &TurtleCommander) {
+        let name = turtle.name();
+        if self.turtles.iter().any(|(t,_)| t.name() == name ) {
+            return;
+        }
         self.turtles.push((
                 turtle.clone(),
                 None
-            ));
+        ));
     }
 
     pub fn add_task(&mut self, task: Box<dyn Task>) {
@@ -67,7 +70,8 @@ impl Scheduler {
             turtle_positions.push(turtle.0.pos().await);
         }
 
-        for task in &mut self.tasks {
+        let mut done = vec![false; self.tasks.len()];
+        for (i, task) in self.tasks.iter_mut().enumerate() {
             let poll = task.poll();
             if let TaskState::Ready(position) = poll {
                 let closest_turtle = match free_turtles.iter_mut().zip(turtle_positions.iter()).min_by_key( |(_,p)| {
@@ -80,10 +84,17 @@ impl Scheduler {
                 closest_turtle.1 = Some(task.run(closest_turtle.0.clone()));
             }
             if let TaskState::Complete = poll {
-                // TODO: removal
+                done[i] = true;
             }
         }
-        
+
+        // this feels like a hack
+        let mut i = 0;
+        self.tasks.retain(|_| {
+            let cont = !done[i];
+            i+=1;
+            cont 
+        });
     }
 
     pub async fn cancel(&mut self, turtle: Name) -> Option<()> {
