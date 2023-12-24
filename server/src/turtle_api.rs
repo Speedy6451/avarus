@@ -211,11 +211,12 @@ pub(crate) async fn command(
         Some(command) => command,
         None => {
             tokio::spawn(async move {
-                //let state = &state.clone();
-                //if Instant::elapsed(&state.clone().read().await.started).as_secs_f64() > STARTUP_ALLOWANCE {
-                //    let schedule = &mut state.write().await.tasks;
-                //    schedule.poll().await;
-                //}
+                let state = &state.clone();
+                if Instant::elapsed(&state.clone().read().await.started).as_secs_f64() > STARTUP_ALLOWANCE {
+                    let schedule = &mut state.write().await.tasks;
+                    trace!("idle, polling");
+                    schedule.poll().await;
+                }
             });
             turtle::TurtleCommand::Wait(IDLE_TIME)
         },
