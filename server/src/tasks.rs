@@ -1,6 +1,6 @@
-use log::info;
+use log::{info, trace};
 use serde::{Deserialize, Serialize};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, AbortHandle};
 
 use crate::names::Name;
 use crate::{turtle::TurtleCommander, blocks::Position};
@@ -14,7 +14,7 @@ pub enum TaskState {
 #[typetag::serde(tag = "task")]
 pub trait Task: Send + Sync {
     /// Execute the task
-    fn run(&mut self, turtle: TurtleCommander) -> JoinHandle<()>;
+    fn run(&mut self, turtle: TurtleCommander) -> AbortHandle;
     /// Return Some if the task should be scheduled
     fn poll(&mut self) -> TaskState;
 }
@@ -22,7 +22,7 @@ pub trait Task: Send + Sync {
 #[derive(Serialize, Deserialize)]
 pub struct Scheduler {
     #[serde(skip)]
-    turtles: Vec<(TurtleCommander, Option<JoinHandle<()>>)>,
+    turtles: Vec<(TurtleCommander, Option<AbortHandle>)>,
     tasks: Vec<Box<dyn Task>>,
 }
 
@@ -49,7 +49,7 @@ impl Scheduler {
     }
 
     pub fn add_task(&mut self, task: Box<dyn Task>) {
-        info!("new task");
+        trace!("new task");
         self.tasks.push(task);
     }
 
@@ -57,12 +57,13 @@ impl Scheduler {
         for turtle in &mut self.turtles {
             if let Some(join)  = &turtle.1 {
                 if join.is_finished() {
+                    trace!("#{} completed task", turtle.0.name().to_num());
                     turtle.1 = None;
                 }
             }
         }
 
-        let mut free_turtles: Vec<&mut (TurtleCommander, Option<JoinHandle<()>>)> = 
+        let mut free_turtles: Vec<&mut (TurtleCommander, Option<AbortHandle>)> = 
             self.turtles.iter_mut().filter(|t| t.1.is_none()).collect();
 
         let mut turtle_positions = Vec::new();
@@ -74,13 +75,16 @@ impl Scheduler {
         for (i, task) in self.tasks.iter_mut().enumerate() {
             let poll = task.poll();
             if let TaskState::Ready(position) = poll {
-                let closest_turtle = match free_turtles.iter_mut().zip(turtle_positions.iter()).min_by_key( |(_,p)| {
+                let closest_turtle = match free_turtles.iter_mut().zip(turtle_positions.iter())
+                    .filter(|t|t.0.1.is_none()) // Don't double-schedule
+                    .min_by_key( |(_,p)| {
                     p.manhattan(position)
                 }) {
                     Some(turtle) => turtle.0,
                     None => break,
                 };
 
+                trace!("scheduling task on #{}", closest_turtle.0.name().to_num());
                 closest_turtle.1 = Some(task.run(closest_turtle.0.clone()));
             }
             if let TaskState::Complete = poll {
@@ -98,7 +102,10 @@ impl Scheduler {
     }
 
     pub async fn cancel(&mut self, turtle: Name) -> Option<()> {
-        self.turtles.iter_mut().find(|t| t.0.name() == turtle)?.1.take()?.abort();
+        if let Some(task) = self.turtles.iter_mut().find(|t| t.0.name() == turtle)?.1.as_ref() {
+            task.abort();
+            info!("aborted task for #{}", turtle.to_num());
+        }
         Some(())
     }
 }

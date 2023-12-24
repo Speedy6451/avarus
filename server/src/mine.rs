@@ -1,6 +1,6 @@
 use log::{info, warn};
 use serde::{Serialize, Deserialize};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, AbortHandle};
 use typetag::serde;
 
 use crate::{blocks::{Position, Vec3, Direction}, turtle::{TurtleCommand, TurtleCommander, TurtleCommandResponse, InventorySlot}, paths::TRANSPARENT, tasks::{Task, TaskState}};
@@ -188,12 +188,12 @@ impl Mine {
 
 #[serde]
 impl Task for Mine {
-    fn run(&mut self,turtle:TurtleCommander) -> JoinHandle<()>  {
+    fn run(&mut self,turtle:TurtleCommander) -> AbortHandle {
         self.miners += 1;
         let frozen = self.clone();
         tokio::spawn(async move {
             mine(turtle,frozen.pos, frozen.chunk).await.unwrap();
-        })
+        }).abort_handle()
         // TODO: mutability after spawn
     }
 

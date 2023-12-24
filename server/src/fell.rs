@@ -3,7 +3,7 @@ use std::ops::Mul;
 use log::{trace, warn, info};
 use serde::{Serialize, Deserialize};
 use time::OffsetDateTime;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, AbortHandle};
 use typetag::serde;
 
 use crate::{blocks::{Vec3, Position, Direction}, turtle::{TurtleCommander, TurtleCommand, TurtleCommandResponse, InventorySlot}, tasks::{Task, TaskState}, depot::Depots, mine::fill, paths::TRANSPARENT};
@@ -135,11 +135,11 @@ impl TreeFarm {
 
 #[serde]
 impl Task for TreeFarm {
-    fn run(&mut self,turtle:TurtleCommander) -> JoinHandle<()>  {
+    fn run(&mut self,turtle:TurtleCommander) -> AbortHandle  {
         let frozen = self.clone();
         tokio::spawn(async move {
             frozen.sweep(turtle).await.unwrap();
-        })
+        }).abort_handle()
     }
 
     fn poll(&mut self) -> TaskState  {
