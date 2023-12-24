@@ -1,6 +1,7 @@
-use std::ops::Mul;
+use std::ops::{Mul, Add};
 
 use log::{trace, warn, info};
+use nalgebra::Vector2;
 use serde::{Serialize, Deserialize};
 use time::OffsetDateTime;
 use tokio::task::{JoinHandle, AbortHandle};
@@ -54,10 +55,13 @@ impl TreeFarm {
 
         // sweep across floor (not upper levels) to get saplings
         // this goes one block past the far corner and to the near corner
-        let area = self.size.xz().component_mul(&spacing.xz()).product();
+        let near_margin = Vec3::new(1, 0, 1);
+        let area = self.size.xz().component_mul(&spacing.xz()).add(near_margin.xz()).product();
         for tile in 0..area {
-            let offset = fill(self.size.component_mul(&Vec3::new(spacing.x, 1, spacing.z)), tile);
-            let tile = self.position + offset;
+            let scale = self.size.component_mul(&Vec3::new(spacing.x, 1, spacing.z))
+                + near_margin; // near corner
+            let offset = fill(scale, tile);
+            let tile = self.position + offset - near_margin;
             turtle.goto_adjacent(tile-Vec3::y()).await;
             turtle.execute(TurtleCommand::SuckFront(64)).await;
         }
