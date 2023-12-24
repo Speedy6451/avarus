@@ -1,6 +1,6 @@
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering, AtomicI32}};
 
-use log::{info, warn};
+use log::{info, warn, error};
 use serde::{Serialize, Deserialize};
 use tokio::task::{JoinHandle, AbortHandle};
 use typetag::serde;
@@ -263,7 +263,9 @@ impl Task for Quarry {
             // TODO: handle failure
             // another turtle should get the next chunk while this is in flight, but program
             // termination or a None return should reschedule the chunk
-            mine_chunk_and_sweep(turtle, abs_pos, max_chunk).await.unwrap();
+            if let None = mine_chunk_and_sweep(turtle, abs_pos, max_chunk).await {
+                error!("mining at {abs_pos} failed");
+            }
             owned.fetch_sub(1, Ordering::AcqRel);
         }).abort_handle()
     }

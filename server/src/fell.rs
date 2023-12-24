@@ -1,6 +1,6 @@
 use std::ops::{Mul, Add};
 
-use log::{trace, warn, info};
+use log::{trace, warn, info, error};
 use nalgebra::Vector2;
 use serde::{Serialize, Deserialize};
 use time::OffsetDateTime;
@@ -142,7 +142,9 @@ impl Task for TreeFarm {
     fn run(&mut self,turtle:TurtleCommander) -> AbortHandle  {
         let frozen = self.clone();
         tokio::spawn(async move {
-            frozen.sweep(turtle).await.unwrap();
+            if let None = frozen.sweep(turtle).await {
+                error!("felling at {} failed", frozen.position);
+            }
         }).abort_handle()
     }
 
