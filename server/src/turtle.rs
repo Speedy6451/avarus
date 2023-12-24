@@ -212,11 +212,16 @@ impl TurtleCommander {
     }
 
     pub async fn dock(&self) -> usize {
+        let mut wait = 1;
         loop {
             let res = Depots::dock(&self.depots, self.to_owned()).await;
             if let Some(fuel) = res {
                 return fuel;
             }
+            // this is a poor way to do this, but I feel like select! ing on 30 different things
+            // would be harder
+            tokio::time::sleep(Duration::from_millis(wait)).await;
+            wait += 1;
         }
     }
 
