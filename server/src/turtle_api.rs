@@ -50,6 +50,7 @@ pub fn turtle_api() -> Router<SharedControl> {
         .route("/createMine", post(dig))
         .route("/registerDepot", post(new_depot))
         .route("/pollScheduler", get(poll))
+        .route("/shutdown", get(shutdown)) // probably tramples the rfc
         .route("/updateAll", get(update_turtles))
 }
 
@@ -134,6 +135,26 @@ pub(crate) async fn poll(
 ) -> &'static str {
     let schedule = &mut state.write().await.tasks;
     schedule.poll().await;
+
+    "ACK"
+}
+
+pub(crate) async fn shutdown(
+    State(state): State<SharedControl>,
+) -> &'static str {
+    let signal = {
+        let mut state = state.write().await;
+        let signal = state.tasks.shutdown();
+        state.tasks.poll().await;
+        signal
+    };
+
+    info!("waiting for tasks to finish");
+    signal.await.unwrap();
+
+    let state = state.write().await;
+    info!("waiting for connections to finish");
+    state.kill.send(()).unwrap();
 
     "ACK"
 }

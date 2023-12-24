@@ -20,9 +20,7 @@ use tokio::sync::watch::Sender;
 
 use axum::Router;
 
-pub(crate) async fn serve(server: Router, listener: TcpListener) -> Sender<()> {
-    let (close_tx, close_rx) = watch::channel(());
-
+pub(crate) async fn serve(server: Router, listener: TcpListener, close_rx: watch::Receiver<()>) {
     loop {
         let (socket, _) = tokio::select! {
             result = listener.accept() => {
@@ -69,8 +67,6 @@ pub(crate) async fn serve(server: Router, listener: TcpListener) -> Sender<()> {
     }
 
     drop(listener);
-
-    close_tx
 }
 
 pub(crate) async fn shutdown_signal() {

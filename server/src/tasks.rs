@@ -1,5 +1,6 @@
 use log::{info, trace};
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, AbortHandle};
 
 use crate::names::Name;
@@ -24,6 +25,8 @@ pub struct Scheduler {
     #[serde(skip)]
     turtles: Vec<(TurtleCommander, Option<AbortHandle>)>,
     tasks: Vec<Box<dyn Task>>,
+    #[serde(skip)]
+    shutdown: Option<oneshot::Sender<()>>,
 }
 
 impl Default for Scheduler {
@@ -31,6 +34,7 @@ impl Default for Scheduler {
         Self {
             turtles: Vec::new(),
             tasks: Vec::new(),
+            shutdown:None,
         }
     }
 }
@@ -61,6 +65,14 @@ impl Scheduler {
                     turtle.1 = None;
                 }
             }
+        }
+
+        if self.shutdown.is_some() {
+            if !self.turtles.iter().any(|t| t.1.is_some()) {
+                self.shutdown.take().unwrap().send(()).unwrap();
+            }
+
+            return;
         }
 
         let mut free_turtles: Vec<&mut (TurtleCommander, Option<AbortHandle>)> = 
@@ -107,5 +119,11 @@ impl Scheduler {
             info!("aborted task for #{}", turtle.to_num());
         }
         Some(())
+    }
+
+    pub fn shutdown(&mut self) -> oneshot::Receiver<()>{
+        let (send, recv) = oneshot::channel();
+        self.shutdown =  Some(send);
+        recv
     }
 }

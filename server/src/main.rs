@@ -16,7 +16,7 @@ use rstar::RTree;
 use names::Name;
 use tasks::Scheduler;
 use tokio::{sync::{
-    RwLock, mpsc, OnceCell, Mutex
+    RwLock, mpsc, OnceCell, Mutex, watch
 }, fs, time::Instant};
 use turtle::{Turtle, TurtleCommander};
 use serde::{Deserialize, Serialize};
@@ -54,7 +54,9 @@ async fn main() -> Result<(), Error> {
 
     log4rs::init_file(SAVE.get().unwrap().join("log.yml"), Default::default())?;
 
-    let state = read_from_disk().await?;
+    let (kill_send, kill_recv) = watch::channel(());
+
+    let state = read_from_disk(kill_send).await?;
 
     let state = SharedControl::new(RwLock::new(state));
 
@@ -67,13 +69,13 @@ async fn main() -> Result<(), Error> {
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", *PORT.get().unwrap()))
         .await.unwrap();
 
-    let server = safe_kill::serve(server, listener).await;
+    safe_kill::serve(server, listener, kill_recv).await;
 
     info!("writing");
     write_to_disk(&*state.read().await).await?;
     info!("written");
 
-    server.closed().await;
+    state.write().await.kill.closed().await;
 
     Ok(())
 }
@@ -101,7 +103,7 @@ async fn write_to_disk(state: &LiveState) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn read_from_disk() -> anyhow::Result<LiveState> {
+async fn read_from_disk(kill: watch::Sender<()>) -> anyhow::Result<LiveState> {
     let turtles = match tokio::fs::OpenOptions::new()
         .read(true)
         .open(SAVE.get().unwrap().join("turtles.json"))
@@ -154,7 +156,7 @@ async fn read_from_disk() -> anyhow::Result<LiveState> {
         depots,
     };
 
-    let mut live = LiveState::from_save(saved, scheduler);
+    let mut live = LiveState::from_save(saved, scheduler, kill);
 
     for turtle in live.turtles.iter() {
         live.tasks.add_turtle(&TurtleCommander::new(turtle.read().await.name,&live).await.unwrap())
@@ -177,6 +179,7 @@ struct LiveState {
     world: blocks::World,
     depots: Depots,
     started: Instant,
+    kill: watch::Sender<()>,
 }
 
 impl LiveState {
@@ -189,7 +192,7 @@ impl LiveState {
         SavedState { turtles, world: self.world.tree().await, depots }
     }
 
-    fn from_save(save: SavedState, scheduler: Scheduler) -> Self {
+    fn from_save(save: SavedState, scheduler: Scheduler, sender: watch::Sender<()>) -> Self {
         let mut turtles = Vec::new();
         for turtle in save.turtles.into_iter() {
             let (tx, rx) = mpsc::channel(1);
@@ -200,6 +203,7 @@ impl LiveState {
         Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: scheduler, world: World::from_tree(save.world),
             depots,
             started: Instant::now(),
+            kill:sender,
         }
     }
 
