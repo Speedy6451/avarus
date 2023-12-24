@@ -43,6 +43,11 @@ pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec
         }
     }
 
+    if dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await > 12 {
+        info!("storage rtb");
+        turtle.dock().await;
+    }
+
     refuel_needed(&turtle, volume).await;
 
     mine_chunk(turtle.clone(), pos, chunk).await?;
@@ -50,6 +55,8 @@ pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec
     valuables.append(&mut near_valuables(&turtle, pos, chunk).await);
 
     while let Some(block) = valuables.pop() {
+        refuel_needed(&turtle, volume).await;
+
         if turtle.world().get(block).await.is_none() {
             continue;
         }
@@ -57,13 +64,6 @@ pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec
         turtle.execute(near.dig(block)?).await;
         observe(turtle.clone(), block).await;
         valuables.append(&mut near_valuables(&turtle, near.pos, Vec3::new(2,2,2)).await);
-
-        refuel_needed(&turtle, volume).await;
-    }
-
-    if dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await > 12 {
-        info!("storage rtb");
-        turtle.dock().await;
     }
 
     Some(())
@@ -269,6 +269,13 @@ impl Task for Quarry {
     }
 
     fn poll(&mut self) -> TaskState {
+        let max_chunk = Vec3::new(4,4,4);
+        let chunks = self.size.component_div(&max_chunk);
+
+        if self.chunk.load(Ordering::SeqCst) >= chunks.product() {
+            return TaskState::Complete;
+        }
+
         let only = self.miners.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
             if n < 1 {
                 Some(n+1)
