@@ -4,6 +4,7 @@ use blocks::Vec3;
 use tokio::time::Instant;
 use crate::fell::TreeFarm;
 use crate::mine::Mine;
+use crate::mine::Quarry;
 use crate::turtle::IDLE_TIME;
 use crate::turtle::TurtleCommandResponse;
 use crate::turtle::TurtleCommander;
@@ -112,8 +113,8 @@ pub(crate) async fn dig(
     Json(req): Json<Vec3>,
 ) -> &'static str {
     let schedule = &mut state.write().await.tasks;
-    let chunk = Vec3::new(4,4,4);
-    schedule.add_task(Box::new(Mine::new(req,chunk)));
+    let size = Vec3::new(16,16,16);
+    schedule.add_task(Box::new(Quarry::new(req,req+size)));
 
     "ACK"
 }

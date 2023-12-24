@@ -49,7 +49,7 @@ impl Scheduler {
     }
 
     pub fn add_task(&mut self, task: Box<dyn Task>) {
-        trace!("new task");
+        trace!("new {} task", task.typetag_name());
         self.tasks.push(task);
     }
 
@@ -84,7 +84,7 @@ impl Scheduler {
                     None => break,
                 };
 
-                trace!("scheduling task on #{}", closest_turtle.0.name().to_num());
+                trace!("scheduling {} on #{}", task.typetag_name(), closest_turtle.0.name().to_num());
                 closest_turtle.1 = Some(task.run(closest_turtle.0.clone()));
             }
             if let TaskState::Complete = poll {

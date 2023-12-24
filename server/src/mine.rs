@@ -1,3 +1,5 @@
+use std::sync::{Arc, atomic::{AtomicUsize, Ordering, AtomicI32}};
+
 use log::{info, warn};
 use serde::{Serialize, Deserialize};
 use tokio::task::{JoinHandle, AbortHandle};
@@ -22,8 +24,17 @@ const VALUABLE: [&str; 1] = [
 ];
 
 pub async fn mine(turtle: TurtleCommander, pos: Vec3, chunk: Vec3) -> Option<()> {
-    let volume = chunk.x * chunk.y * chunk.z;
     let mut pos = pos;
+
+    loop {
+        mine_chunk_and_sweep(turtle.clone(), pos, chunk).await?;
+
+        pos += Vec3::z() * chunk.z;
+    }
+}
+
+pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec3) -> Option<()> {
+    let volume = chunk.x * chunk.y * chunk.z;
     let mut valuables = Vec::new();
 
     async fn refuel_needed(turtle: &TurtleCommander, volume: i32) {
@@ -32,32 +43,30 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, chunk: Vec3) -> Option<()>
         }
     }
 
-    loop {
+    refuel_needed(&turtle, volume).await;
+
+    mine_chunk(turtle.clone(), pos, chunk).await?;
+
+    valuables.append(&mut near_valuables(&turtle, pos, chunk).await);
+
+    while let Some(block) = valuables.pop() {
+        if turtle.world().get(block).await.is_none() {
+            continue;
+        }
+        let near = turtle.goto_adjacent(block).await?;
+        turtle.execute(near.dig(block)?).await;
+        observe(turtle.clone(), block).await;
+        valuables.append(&mut near_valuables(&turtle, near.pos, Vec3::new(2,2,2)).await);
+
         refuel_needed(&turtle, volume).await;
-
-        mine_chunk(turtle.clone(), pos, chunk).await?;
-
-        valuables.append(&mut near_valuables(&turtle, pos, chunk).await);
-
-        while let Some(block) = valuables.pop() {
-            if turtle.world().get(block).await.is_none() {
-                continue;
-            }
-            let near = turtle.goto_adjacent(block).await?;
-            turtle.execute(near.dig(block)?).await;
-            observe(turtle.clone(), block).await;
-            valuables.append(&mut near_valuables(&turtle, near.pos, Vec3::new(2,2,2)).await);
-
-            refuel_needed(&turtle, volume).await;
-        }
-
-        if dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await > 12 {
-            info!("storage rtb");
-            turtle.dock().await;
-        }
-
-        pos += Vec3::z() * chunk.z;
     }
+
+    if dump_filter(turtle.clone(), |i| USELESS.iter().any(|u| **u == i.name)).await > 12 {
+        info!("storage rtb");
+        turtle.dock().await;
+    }
+
+    Some(())
 }
 
 async fn near_valuables(turtle: &TurtleCommander, pos: Vec3, chunk: Vec3) -> Vec<Vec3> {
@@ -199,6 +208,77 @@ impl Task for Mine {
 
     fn poll(&mut self) -> TaskState {
         if self.miners < 1 {
+            return TaskState::Ready(Position::new(self.pos, Direction::North));
+        }
+        TaskState::Waiting
+    }
+}
+
+#[derive(Serialize, Deserialize,Clone)]
+pub struct Quarry {
+    pos: Vec3,
+    size: Vec3,
+    #[serde(skip_deserializing)]
+    miners: Arc<AtomicUsize>,
+    chunk: Arc<AtomicI32>
+}
+
+impl Quarry {
+    pub fn new(lower: Vec3, upper: Vec3) -> Self {
+        let size = upper - lower;
+
+        Self { 
+            pos: lower, 
+            size, 
+            miners: Arc::new(AtomicUsize::new(0)),
+            chunk: Arc::new(AtomicI32::new(0)),
+        }
+    }
+
+    pub fn chunk(pos: Vec3) -> Self {
+        let base = pos.map(|n| n%16);
+        Self { 
+            pos: base, 
+            size: Vec3::new(16,16,16), 
+            miners: Arc::new(AtomicUsize::new(0)),
+            chunk: Arc::new(AtomicI32::new(0)),
+        }
+    }
+}
+
+#[serde]
+impl Task for Quarry {
+    fn run(&mut self,turtle:TurtleCommander) -> AbortHandle {
+        let chunk = self.chunk.fetch_add(1, Ordering::AcqRel);
+        // TODO: partial chunks on corners
+        let max_chunk = Vec3::new(4,4,4);
+        let e = self.size.component_div(&max_chunk);
+
+        let rel_pos = fill(e, chunk).component_mul(&max_chunk);
+        let abs_pos = rel_pos
+            + self.pos;
+
+        let owned = self.miners.clone();
+        tokio::spawn(async move {
+            // TODO: handle failure
+            // another turtle should get the next chunk while this is in flight, but program
+            // termination or a None return should reschedule the chunk
+            mine_chunk_and_sweep(turtle, abs_pos, max_chunk).await.unwrap();
+            owned.fetch_sub(1, Ordering::AcqRel);
+        }).abort_handle()
+    }
+
+    fn poll(&mut self) -> TaskState {
+        let only = self.miners.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            if n < 1 {
+                Some(n+1)
+            }else {
+                None
+            }
+        }).is_ok();
+
+        if only {
+            // This is approximate as we have to go to a depot anyway
             return TaskState::Ready(Position::new(self.pos, Direction::North));
         }
         TaskState::Waiting
