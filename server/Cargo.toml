@@ -39,7 +39,7 @@ tower-layer = "0.3.2"
 tracing = "0.1"
 typetag = "0.2.14"
 ucnlnav = { git = "https://github.com/ucnl/UCNLNav.git", version = "0.1.0" }
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
 console-subscriber = "0.1.5"
 opentelemetry = "0.17.0"
 tracing-opentelemetry = "0.17.2"

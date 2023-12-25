@@ -23,6 +23,7 @@ use tokio::time::timeout;
 
 use super::LiveState;
 
+use core::fmt;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
@@ -139,7 +140,7 @@ impl Turtle {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TurtleCommander {
     sender: Arc<Sender>,
     world: World,
@@ -150,6 +151,14 @@ pub struct TurtleCommander {
     fuel: Arc<AtomicUsize>,
     max_fuel: Arc<AtomicUsize>,
     name: Arc<OnceCell<Name>>,
+}
+
+impl fmt::Debug for TurtleCommander {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Turtle {} ", self.name().to_str())?;
+        write!(f, "fuel: {} ", self.fuel())?;
+        write!(f, "fuel_limit: {} ", self.fuel_limit())
+    }
 }
 
 impl TurtleCommander {
@@ -212,7 +221,7 @@ impl TurtleCommander {
         self.world.clone()
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn dock(&self) -> usize {
         let mut wait = 1;
         loop {

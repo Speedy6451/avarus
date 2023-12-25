@@ -9,7 +9,7 @@ use crate::{turtle::TurtleCommand, paths::{self, TRANSPARENT}};
 
 pub type WorldReadLock = OwnedRwLockReadGuard<RTree<Block>>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct World {
     state: Arc<RwLock<RTree<Block>>>, // interior mutability to get around the 
                                       // questionable architecture of this project

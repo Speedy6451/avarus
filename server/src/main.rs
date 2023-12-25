@@ -12,7 +12,7 @@ use blocks::{World, Position, };
 use depot::Depots;
 use opentelemetry::global;
 use tower_http::trace::TraceLayer;
-use tracing::{info, span};
+use tracing::{info, span, Level};
 use rstar::RTree;
 
 use names::Name;
@@ -20,7 +20,7 @@ use tasks::Scheduler;
 use tokio::{sync::{
     RwLock, mpsc, OnceCell, Mutex, watch
 }, fs, time::Instant, runtime::Runtime};
-use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{fmt::format::FmtSpan, layer::{SubscriberExt, Filter}, util::SubscriberInitExt, filter, Layer};
 use turtle::{Turtle, TurtleCommander};
 use serde::{Deserialize, Serialize};
 use indoc::formatdoc;
@@ -63,11 +63,18 @@ async fn main() -> Result<(), Error> {
 
     let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
+    let filter = filter::Targets::new()
+        .with_default(Level::INFO)
+        .with_target("server::tasks", Level::TRACE)
+        .with_target("server::turtle", Level::ERROR)
+        .with_target("server::turtle_api", Level::INFO)
+        .with_target("server::fell", Level::INFO);
+
     let subscriber = tracing_subscriber::fmt::layer()
         .compact()
         .with_file(false)
         .with_target(true)
-        .with_span_events(FmtSpan::ENTER);
+        .with_filter(filter);
 
     tracing_subscriber::registry()
         .with(opentelemetry)

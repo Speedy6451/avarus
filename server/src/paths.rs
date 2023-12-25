@@ -6,6 +6,7 @@ use pathfinding::prelude::astar;
 
 const LOOKUP_LIMIT: usize = 10_000_000;
 
+#[tracing::instrument(skip(world))]
 pub async fn route_facing(from: Position, to: Vec3, world: &World) -> Option<Vec<Position>> {
     let facing = |p: &Position| {
         let ahead = p.dir.unit() + p.pos;
@@ -16,6 +17,7 @@ pub async fn route_facing(from: Position, to: Vec3, world: &World) -> Option<Vec
     route_to(from, to, facing, world).await
 }
 
+#[tracing::instrument(skip(world))]
 pub async fn route(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
     trace!("routing from {from:?} to {to:?}");
     // attempt at not crashing by looking infinitely into the abyss

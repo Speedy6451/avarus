@@ -9,7 +9,7 @@ use typetag::serde;
 
 use crate::{blocks::{Vec3, Position, Direction}, turtle::{TurtleCommander, TurtleCommand, TurtleCommandResponse, InventorySlot}, tasks::{Task, TaskState}, depot::Depots, mine::fill, paths::TRANSPARENT};
 
-#[tracing::instrument]
+#[tracing::instrument(skip(turtle))]
 pub async fn fell_tree(turtle: TurtleCommander, bottom: Vec3) -> Option<()> {
     let mut log = bottom;
     loop {
