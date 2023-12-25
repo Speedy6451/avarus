@@ -156,11 +156,7 @@ async fn read_from_disk(kill: watch::Sender<()>) -> anyhow::Result<LiveState> {
         depots,
     };
 
-    let mut live = LiveState::from_save(saved, scheduler, kill);
-
-    for turtle in live.turtles.iter() {
-        live.tasks.add_turtle(&TurtleCommander::new(turtle.read().await.name,&live).await.unwrap())
-    }
+    let live = LiveState::from_save(saved, scheduler, kill);
 
     Ok(live)
 }

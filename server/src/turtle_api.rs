@@ -222,6 +222,7 @@ pub(crate) async fn command(
 ) -> Json<turtle::TurtleCommand> {
     trace!("reply from turtle {id}: {req:?}");
     let state_guard = state.clone().read_owned().await;
+    let turtle_commander = state_guard.get_turtle(id).await;
 
     if id as usize > state_guard.turtles.len() {
         return Json(turtle::TurtleCommand::Update);
@@ -237,6 +238,7 @@ pub(crate) async fn command(
                 if Instant::elapsed(&state.clone().read().await.started).as_secs_f64() > STARTUP_ALLOWANCE {
                     let schedule = &mut state.write().await.tasks;
                     trace!("idle, polling");
+                    schedule.add_turtle(&turtle_commander.unwrap());
                     schedule.poll().await;
                 }
             });

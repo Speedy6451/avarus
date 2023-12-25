@@ -46,6 +46,7 @@ impl Scheduler {
         if self.turtles.iter().any(|(t,_)| t.name() == name ) {
             return;
         }
+        info!("registered {}", name.to_owned().to_str());
         self.turtles.push((
                 turtle.clone(),
                 None
