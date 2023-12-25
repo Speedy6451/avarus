@@ -1,4 +1,4 @@
-use tracing::{info, trace};
+use tracing::{info, trace, instrument};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, AbortHandle};
@@ -58,6 +58,7 @@ impl Scheduler {
         self.tasks.push(task);
     }
 
+    #[instrument(skip(self))]
     pub async fn poll(&mut self) {
         for turtle in &mut self.turtles {
             if let Some(join)  = &turtle.1 {
@@ -69,8 +70,14 @@ impl Scheduler {
         }
 
         if self.shutdown.is_some() {
+            trace!("checking remaining tasks");
             if !self.turtles.iter().any(|t| t.1.is_some()) {
+                trace!("all tasks complete");
                 self.shutdown.take().unwrap().send(()).unwrap();
+            }
+
+            for turtle in self.turtles.iter().filter(|t| t.1.is_some()) {
+                trace!("waiting on {}", turtle.0.name().to_str());
             }
 
             return;

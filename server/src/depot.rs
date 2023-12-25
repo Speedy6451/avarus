@@ -26,6 +26,7 @@ impl Depots {
             .map(|d| d)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn dock(&self, turtle: TurtleCommander) -> Option<usize> {
         let depot = self.clone().nearest(turtle.pos().await).await?;
         trace!("depot at {depot:?}");

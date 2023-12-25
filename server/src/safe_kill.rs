@@ -20,7 +20,7 @@ use tokio::sync::watch::Sender;
 
 use axum::Router;
 
-pub(crate) async fn serve(server: Router, listener: TcpListener, close_rx: watch::Receiver<()>) {
+pub(crate) async fn serve(server: Router, listener: TcpListener, mut close_rx: watch::Receiver<bool>) {
     loop {
         let (socket, _) = tokio::select! {
             result = listener.accept() => {
@@ -30,10 +30,14 @@ pub(crate) async fn serve(server: Router, listener: TcpListener, close_rx: watch
                 info!("cancelled connection");
                 break;
             }
+            _ = close_rx.wait_for(|k| *k) => {
+                info!("cancelled connection");
+                break;
+            }
         };
 
         let tower = server.clone();
-        let close_rx = close_rx.clone();
+        let mut close_rx = close_rx.clone();
 
         tokio::spawn(async move {
             let socket = TokioIo::new(socket);
@@ -56,6 +60,10 @@ pub(crate) async fn serve(server: Router, listener: TcpListener, close_rx: watch
                         break;
                     }
                     _ = shutdown_signal() => {
+                        info!("starting shutdown");
+                        conn.as_mut().graceful_shutdown();
+                    }
+                    _ = close_rx.wait_for(|k| *k) => {
                         info!("starting shutdown");
                         conn.as_mut().graceful_shutdown();
                     }

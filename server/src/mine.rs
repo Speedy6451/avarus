@@ -1,6 +1,6 @@
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering, AtomicI32}};
 
-use tracing::{info, warn, error};
+use tracing::{info, warn, error, instrument};
 use serde::{Serialize, Deserialize};
 use tokio::task::{JoinHandle, AbortHandle};
 use typetag::serde;
@@ -33,6 +33,7 @@ pub async fn mine(turtle: TurtleCommander, pos: Vec3, chunk: Vec3) -> Option<()>
     }
 }
 
+#[instrument]
 pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec3) -> Option<()> {
     let volume = chunk.x * chunk.y * chunk.z;
     let mut valuables = Vec::new();
@@ -77,6 +78,7 @@ async fn near_valuables(turtle: &TurtleCommander, pos: Vec3, chunk: Vec3) -> Vec
         .map(|b|b.pos).collect()
 }
 
+#[instrument]
 pub async fn mine_chunk(turtle: TurtleCommander, pos: Vec3, chunk: Vec3) -> Option<()> {
     let turtle = turtle.clone();
     let volume = chunk.x * chunk.y * chunk.z;

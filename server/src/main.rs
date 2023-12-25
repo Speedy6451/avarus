@@ -68,12 +68,15 @@ async fn main() -> Result<(), Error> {
         .with_target("server::tasks", Level::TRACE)
         .with_target("server::turtle", Level::ERROR)
         .with_target("server::turtle_api", Level::INFO)
-        .with_target("server::fell", Level::INFO);
+        .with_target("server::fell", Level::INFO)
+        .with_target("server::mine", Level::INFO)
+        .with_target("server::depot", Level::TRACE);
 
     let subscriber = tracing_subscriber::fmt::layer()
         .compact()
         .with_file(false)
         .with_target(true)
+        .with_span_events(FmtSpan::ACTIVE)
         .with_filter(filter);
 
     tracing_subscriber::registry()
@@ -83,7 +86,7 @@ async fn main() -> Result<(), Error> {
 
     info!("starting");
 
-    let (kill_send, kill_recv) = watch::channel(());
+    let (kill_send, kill_recv) = watch::channel(false);
 
     let state = read_from_disk(kill_send).await?;
 
@@ -133,7 +136,7 @@ async fn write_to_disk(state: &LiveState) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn read_from_disk(kill: watch::Sender<()>) -> anyhow::Result<LiveState> {
+async fn read_from_disk(kill: watch::Sender<bool>) -> anyhow::Result<LiveState> {
     let turtles = match tokio::fs::OpenOptions::new()
         .read(true)
         .open(SAVE.get().unwrap().join("turtles.json"))
@@ -205,7 +208,7 @@ struct LiveState {
     world: blocks::World,
     depots: Depots,
     started: Instant,
-    kill: watch::Sender<()>,
+    kill: watch::Sender<bool>,
 }
 
 impl LiveState {
@@ -218,7 +221,7 @@ impl LiveState {
         SavedState { turtles, world: self.world.tree().await, depots }
     }
 
-    fn from_save(save: SavedState, scheduler: Scheduler, sender: watch::Sender<()>) -> Self {
+    fn from_save(save: SavedState, scheduler: Scheduler, sender: watch::Sender<bool>) -> Self {
         let mut turtles = Vec::new();
         for turtle in save.turtles.into_iter() {
             let (tx, rx) = mpsc::channel(1);

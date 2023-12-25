@@ -152,9 +152,10 @@ pub(crate) async fn shutdown(
     info!("waiting for tasks to finish");
     signal.await.unwrap();
 
+    info!("waiting for lock");
     let state = state.write().await;
     info!("waiting for connections to finish");
-    state.kill.send(()).unwrap();
+    state.kill.send(true).unwrap();
 
     "ACK"
 }
