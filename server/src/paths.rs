@@ -101,7 +101,7 @@ pub const TRANSPARENT: [&str; 3] = [
 ];
 
 /// Blocks that are fine to tunnel through
-const GARBAGE: [&str; 11] = [
+const GARBAGE: [&str; 13] = [
     "minecraft:stone",
     "minecraft:dirt",
     "minecraft:andesite",
@@ -113,6 +113,8 @@ const GARBAGE: [&str; 11] = [
     "minecraft:spruce_leaves",
     "minecraft:oak_leaves",
     "traverse:fir_leaves",
+    "wilderwild:brown_shelf_fungus",
+    "wilderwild:red_shelf_fungus",
 ];
 
 /// time taken to go through uncharted territory (in turtle. calls)

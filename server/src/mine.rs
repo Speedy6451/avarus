@@ -258,14 +258,14 @@ impl Quarry {
 
     async fn mark_done(&self, chunk: i32) {
         let mut in_flight = self.in_flight.write().await;
-        let min = in_flight.iter().min() == Some(&chunk);
+        let min = in_flight.iter().max() == Some(&chunk);
 
         in_flight.retain(|c| c != &chunk);
 
         if min { // make sure that head is no less than min
             loop {
-                let curr = self.head.load(Ordering::SeqCst);
-                if let Ok(_) = self.head.compare_exchange(curr, curr.min(chunk), Ordering::AcqRel, Ordering::SeqCst) {
+                let curr = self.confirmed.load(Ordering::SeqCst);
+                if let Ok(_) = self.confirmed.compare_exchange(curr, curr.max(chunk), Ordering::AcqRel, Ordering::SeqCst) {
                     break;
                 }
             }
