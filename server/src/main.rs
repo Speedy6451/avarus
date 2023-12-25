@@ -10,25 +10,22 @@ use axum::{
 };
 use blocks::{World, Position, };
 use depot::Depots;
-use tracing::info;
+use tracing::{info, span};
 use rstar::RTree;
 
 use names::Name;
 use tasks::Scheduler;
 use tokio::{sync::{
     RwLock, mpsc, OnceCell, Mutex, watch
-}, fs, time::Instant};
+}, fs, time::Instant, runtime::Runtime};
 use turtle::{Turtle, TurtleCommander};
 use serde::{Deserialize, Serialize};
 use indoc::formatdoc;
-use opentelemetry::global::shutdown_tracer_provider;
-use opentelemetry::{
-    global,
-    trace::{TraceContextExt, TraceError, Tracer},
-    KeyValue,
-};
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_sdk::{trace::TracerProvider, runtime::Tokio};
+use opentelemetry_stdout as stdout;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::Registry;
 
 use crate::blocks::Block;
 
@@ -60,29 +57,18 @@ async fn main() -> Result<(), Error> {
         None => "save".into(),
     })?;
 
-    opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint("http://localhost:4317"),
-        )
-        .with_trace_config(
-            sdktrace::config().with_resource(Resource::new(vec![KeyValue::new(
-                "service.name",
-                "tracing-jaeger",
-            )])),
-        )
-        .install_batch(runtime::Tokio)?;
+    let provider = TracerProvider::builder()
+        .with_batch_exporter(opentelemetry_stdout::SpanExporter::default(),Tokio)
+        .build();
 
+    let tracer = provider.tracer("avarus");
 
-    let tracer = global::tracer("avarus");
-    
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-
     let subscriber = Registry::default().with(telemetry);
 
-    tracing::subscriber::set_global_default(subscriber);
+    tracing::subscriber::set_global_default(subscriber)?;
+
+    info!("started");
 
     let (kill_send, kill_recv) = watch::channel(());
 
@@ -104,8 +90,6 @@ async fn main() -> Result<(), Error> {
     info!("writing");
     write_to_disk(&*state.read().await).await?;
     info!("written");
-
-    shutdown_tracer_provider();
 
     state.write().await.kill.closed().await;
 
