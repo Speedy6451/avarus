@@ -21,14 +21,14 @@ use tokio::{sync::{
 use turtle::{Turtle, TurtleCommander};
 use serde::{Deserialize, Serialize};
 use indoc::formatdoc;
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use tracing_subscriber::prelude::*;
+use opentelemetry::global::shutdown_tracer_provider;
+use opentelemetry::{
+    global,
+    trace::{TraceContextExt, TraceError, Tracer},
+    KeyValue,
+};
 use opentelemetry_otlp::WithExportConfig;
-use opentelemetry::{global, KeyValue};
-use opentelemetry_sdk::logs as sdklogs;
-use opentelemetry_sdk::metrics as sdkmetrics;
-use opentelemetry_sdk::resource;
-use opentelemetry_sdk::trace as sdktrace;
+use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
 
 use crate::blocks::Block;
 
@@ -61,34 +61,28 @@ async fn main() -> Result<(), Error> {
     })?;
 
     opentelemetry_otlp::new_pipeline()
-        .logging()
-        .with_log_config(
-            sdklogs::Config::default().with_resource(resource::Resource::new(vec![KeyValue::new(
-                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-                "avarus",
-            )])),
-        )
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .http()
-                .with_endpoint("http://localhost:4318"),
-        )
-        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
-
-    opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(
             opentelemetry_otlp::new_exporter()
-                .http()
-                .with_endpoint("http://localhost:4318/v1/traces"),
+                .tonic()
+                .with_endpoint("http://localhost:4317"),
         )
-        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+        .with_trace_config(
+            sdktrace::config().with_resource(Resource::new(vec![KeyValue::new(
+                "service.name",
+                "tracing-jaeger",
+            )])),
+        )
+        .install_batch(runtime::Tokio)?;
 
-    let tracer = global::tracer("avarus/basic");
 
-    let logger_provider = opentelemetry::global::logger_provider();
-    let layer = OpenTelemetryTracingBridge::new(&logger_provider);
-    tracing_subscriber::registry().with(layer).init();
+    let tracer = global::tracer("avarus");
+    
+    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    let subscriber = Registry::default().with(telemetry);
+
+    tracing::subscriber::set_global_default(subscriber);
 
     let (kill_send, kill_recv) = watch::channel(());
 
@@ -111,8 +105,7 @@ async fn main() -> Result<(), Error> {
     write_to_disk(&*state.read().await).await?;
     info!("written");
 
-    global::shutdown_tracer_provider();
-    global::shutdown_logger_provider();
+    shutdown_tracer_provider();
 
     state.write().await.kill.closed().await;
 
