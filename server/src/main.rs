@@ -67,9 +67,10 @@ async fn main() -> Result<(), Error> {
         .with_default(Level::INFO)
         .with_target("server::tasks", Level::TRACE)
         .with_target("server::turtle", Level::ERROR)
+        .with_target("server::paths", Level::ERROR)
         .with_target("server::turtle_api", Level::INFO)
-        .with_target("server::fell", Level::INFO)
-        .with_target("server::mine", Level::INFO)
+        .with_target("server::fell", Level::WARN)
+        .with_target("server::mine", Level::WARN)
         .with_target("server::depot", Level::TRACE);
 
     let subscriber = tracing_subscriber::fmt::layer()
