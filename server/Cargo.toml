@@ -19,13 +19,6 @@ hyper = "1.0.1"
 hyper-util = "0.1.1"
 indoc = "2.0.4"
 nalgebra = { version = "0.32.3", features = ["serde-serialize"] }
-opentelemetry = "0.21.0"
-opentelemetry-appender-tracing = "0.2.0"
-opentelemetry-jaeger = "0.20.0"
-opentelemetry-otlp = { version = "0.14.0", features = ["logs", "http-proto", "reqwest-client"] }
-opentelemetry-semantic-conventions = "0.13.0"
-opentelemetry-stdout = { version = "0.2.0", features = ["trace"] }
-opentelemetry_sdk = { version = "0.21.1", features = ["logs", "rt-tokio"] }
 parking_lot = { version = "0.11", features = ["serde"] }
 pathfinding = "4.6.0"
 rstar = { version = "0.11.0", features = ["serde"] }
@@ -33,7 +26,7 @@ rustmatica = "0.1.1"
 serde = { version = "1.0.193", features = ["rc", "derive"] }
 serde_json = "1.0.108"
 time = { version = "0.3.31", features = ["serde"] }
-tokio = { version = "1.0", features = ["full", "tracing"] }
+tokio = { version = "1", features = ["full", "tracing"] }
 tower = { version = "0.4", features = ["util", "timeout", "load-shed", "limit"] }
 tower-http = { version = "0.5.0", features = [
     "add-extension",
@@ -44,7 +37,10 @@ tower-http = { version = "0.5.0", features = [
 ] }
 tower-layer = "0.3.2"
 tracing = "0.1"
-tracing-opentelemetry = "0.22.0"
-tracing-subscriber = { version = "0.3.18", features = ["registry", "std"] }
 typetag = "0.2.14"
 ucnlnav = { git = "https://github.com/ucnl/UCNLNav.git", version = "0.1.0" }
+tracing-subscriber = "0.3"
+console-subscriber = "0.1.5"
+opentelemetry = "0.17.0"
+tracing-opentelemetry = "0.17.2"
+opentelemetry-jaeger = "0.16.0"

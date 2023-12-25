@@ -231,7 +231,7 @@ impl TurtleCommander {
         self.depots.dock(self.clone()).await 
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self))]
     pub async fn goto(&self, pos: Position) -> Option<()> {
         let mut recent = self.pos().await;
         let world = self.world.clone();

@@ -169,6 +169,7 @@ pub(crate) async fn fell(
     "ACK"
 }
 
+#[tracing::instrument(skip(state))]
 pub(crate) async fn set_goal(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,

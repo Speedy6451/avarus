@@ -1,6 +1,6 @@
 #![feature(iter_map_windows, iter_collect_into)]
 
-use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args, path};
+use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args, path, borrow::BorrowMut};
 
 use anyhow::{Error, Ok};
 use axum::{
@@ -10,6 +10,8 @@ use axum::{
 };
 use blocks::{World, Position, };
 use depot::Depots;
+use opentelemetry::global;
+use tower_http::trace::TraceLayer;
 use tracing::{info, span};
 use rstar::RTree;
 
@@ -18,15 +20,10 @@ use tasks::Scheduler;
 use tokio::{sync::{
     RwLock, mpsc, OnceCell, Mutex, watch
 }, fs, time::Instant, runtime::Runtime};
+use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
 use turtle::{Turtle, TurtleCommander};
 use serde::{Deserialize, Serialize};
 use indoc::formatdoc;
-use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_sdk::{trace::TracerProvider, runtime::Tokio};
-use opentelemetry_stdout as stdout;
-use tracing_subscriber::prelude::*;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::Registry;
 
 use crate::blocks::Block;
 
@@ -58,18 +55,26 @@ async fn main() -> Result<(), Error> {
         None => "save".into(),
     })?;
 
-    let tracer = opentelemetry_jaeger::new_agent_pipeline()
+    global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
+
+    let tracer = opentelemetry_jaeger::new_pipeline()
         .with_service_name("avarus")
         .install_simple()?;
+
     let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    let subscriber = tracing_subscriber::fmt::layer()
+        .compact()
+        .with_file(false)
+        .with_target(true)
+        .with_span_events(FmtSpan::ENTER);
+
     tracing_subscriber::registry()
         .with(opentelemetry)
+        .with(subscriber)
         .try_init()?;
 
-    let root = span!(tracing::Level::INFO, "starting");
-    let enter = root.enter();
-
-    info!("started");
+    info!("starting");
 
     let (kill_send, kill_recv) = watch::channel(());
 
@@ -81,6 +86,7 @@ async fn main() -> Result<(), Error> {
         //.route("/turtle/:id/placeUp", get(place_up))
         .route("/flush", get(flush))
         .nest("/turtle", turtle_api::turtle_api())
+        .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", *PORT.get().unwrap()))
