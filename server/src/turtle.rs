@@ -10,6 +10,7 @@ use anyhow::Ok;
 
 use anyhow;
 use anyhow::Context;
+use tracing::error;
 use tracing::trace;
 use tracing::warn;
 use tracing::info;
@@ -192,7 +193,10 @@ impl TurtleCommander {
     pub async fn execute(&self, command: TurtleCommand) -> TurtleInfo {
         let (send, recv) = oneshot::channel::<TurtleInfo>();
 
-        self.sender.to_owned().send((command,send)).await.unwrap();
+        if let Err(_) = self.sender.to_owned().send((command,send)).await {
+            error!("server disappeared"); // It's fine to continue, nobody 
+                                          // is left to read garbage
+        };
 
         let resp = recv.await.unwrap();
         let mut pos = self.pos.write().await;

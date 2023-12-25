@@ -58,7 +58,6 @@ impl Scheduler {
         self.tasks.push(task);
     }
 
-    #[instrument(skip(self))]
     pub async fn poll(&mut self) {
         for turtle in &mut self.turtles {
             if let Some(join)  = &turtle.1 {

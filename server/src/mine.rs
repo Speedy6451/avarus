@@ -251,8 +251,17 @@ impl Quarry {
     }
 
     async fn next_chunk(&self) -> i32 {
+        loop { // this might be unsound, I don't really know
+            let chunk = self.head.load(Ordering::SeqCst);
+            let backstop = self.confirmed.load(Ordering::SeqCst);
+            if let Ok(_) = self.head.compare_exchange(chunk, chunk.max(backstop), Ordering::AcqRel, Ordering::SeqCst) {
+                break;
+            }
+        }
+
         let chunk = self.head.fetch_add(1, Ordering::AcqRel);
-        self.in_flight.write().await.push(chunk);
+        let backstop = self.confirmed.load(Ordering::SeqCst);
+        self.in_flight.write().await.push(chunk.max(backstop));
         chunk
     }
 
