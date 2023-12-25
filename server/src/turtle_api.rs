@@ -1,4 +1,4 @@
-use log::trace;
+use tracing::trace;
 use tokio;
 use blocks::Vec3;
 use tokio::time::Instant;
@@ -12,7 +12,7 @@ use crate::turtle::TurtleInfo;
 use axum::extract::Path;
 use crate::turtle::TurtleCommand;
 use crate::names::Name;
-use log::info;
+use tracing::info;
 use std::collections::VecDeque;
 use blocks::Position;
 use crate::turtle::Turtle;

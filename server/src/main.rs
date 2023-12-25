@@ -10,7 +10,7 @@ use axum::{
 };
 use blocks::{World, Position, };
 use depot::Depots;
-use log::info;
+use tracing::info;
 use rstar::RTree;
 
 use names::Name;
@@ -21,6 +21,14 @@ use tokio::{sync::{
 use turtle::{Turtle, TurtleCommander};
 use serde::{Deserialize, Serialize};
 use indoc::formatdoc;
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
+use tracing_subscriber::prelude::*;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry::{global, KeyValue};
+use opentelemetry_sdk::logs as sdklogs;
+use opentelemetry_sdk::metrics as sdkmetrics;
+use opentelemetry_sdk::resource;
+use opentelemetry_sdk::trace as sdktrace;
 
 use crate::blocks::Block;
 
@@ -52,7 +60,35 @@ async fn main() -> Result<(), Error> {
         None => "save".into(),
     })?;
 
-    log4rs::init_file(SAVE.get().unwrap().join("log.yml"), Default::default())?;
+    opentelemetry_otlp::new_pipeline()
+        .logging()
+        .with_log_config(
+            sdklogs::Config::default().with_resource(resource::Resource::new(vec![KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                "avarus",
+            )])),
+        )
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .http()
+                .with_endpoint("http://localhost:4318"),
+        )
+        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+
+    opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .http()
+                .with_endpoint("http://localhost:4318/v1/traces"),
+        )
+        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+
+    let tracer = global::tracer("avarus/basic");
+
+    let logger_provider = opentelemetry::global::logger_provider();
+    let layer = OpenTelemetryTracingBridge::new(&logger_provider);
+    tracing_subscriber::registry().with(layer).init();
 
     let (kill_send, kill_recv) = watch::channel(());
 
@@ -74,6 +110,9 @@ async fn main() -> Result<(), Error> {
     info!("writing");
     write_to_disk(&*state.read().await).await?;
     info!("written");
+
+    global::shutdown_tracer_provider();
+    global::shutdown_logger_provider();
 
     state.write().await.kill.closed().await;
 

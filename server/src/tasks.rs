@@ -1,4 +1,4 @@
-use log::{info, trace};
+use tracing::{info, trace};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, AbortHandle};

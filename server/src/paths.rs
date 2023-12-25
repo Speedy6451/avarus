@@ -1,7 +1,7 @@
 use crate::{
     blocks::{World, Position, Direction, Vec3, WorldReadLock},
 };
-use log::{trace, error};
+use tracing::{trace, error};
 use pathfinding::prelude::astar;
 
 const LOOKUP_LIMIT: usize = 10_000_000;

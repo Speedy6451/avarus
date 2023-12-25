@@ -1,6 +1,6 @@
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering, AtomicI32}};
 
-use log::{info, warn, error};
+use tracing::{info, warn, error};
 use serde::{Serialize, Deserialize};
 use tokio::task::{JoinHandle, AbortHandle};
 use typetag::serde;

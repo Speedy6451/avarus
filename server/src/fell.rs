@@ -1,6 +1,6 @@
 use std::ops::{Mul, Add};
 
-use log::{trace, warn, info, error};
+use tracing::{trace, warn, info, error};
 use nalgebra::Vector2;
 use serde::{Serialize, Deserialize};
 use time::OffsetDateTime;
@@ -9,6 +9,7 @@ use typetag::serde;
 
 use crate::{blocks::{Vec3, Position, Direction}, turtle::{TurtleCommander, TurtleCommand, TurtleCommandResponse, InventorySlot}, tasks::{Task, TaskState}, depot::Depots, mine::fill, paths::TRANSPARENT};
 
+#[tracing::instrument]
 pub async fn fell_tree(turtle: TurtleCommander, bottom: Vec3) -> Option<()> {
     let mut log = bottom;
     loop {
@@ -25,7 +26,7 @@ pub async fn fell_tree(turtle: TurtleCommander, bottom: Vec3) -> Option<()> {
 /// Minutes before checking
 const SWEEP_DELAY: i64 = 16;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TreeFarm {
     position: Vec3,
     size: Vec3,
@@ -41,6 +42,7 @@ impl TreeFarm {
         }
     }
 
+    #[tracing::instrument]
     pub async fn sweep(&self, turtle: TurtleCommander) -> Option<()> {
         let trees = self.size.product();
         let spacing = Vec3::new(2, 32, 2);
@@ -139,6 +141,7 @@ impl TreeFarm {
 
 #[serde]
 impl Task for TreeFarm {
+    #[tracing::instrument]
     fn run(&mut self,turtle:TurtleCommander) -> AbortHandle  {
         let frozen = self.clone();
         tokio::spawn(async move {

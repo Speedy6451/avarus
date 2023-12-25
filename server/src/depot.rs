@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::{warn, info, trace};
+use tracing::{warn, info, trace};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{blocks::Position, turtle::TurtleCommander};
@@ -11,7 +11,7 @@ use crate::turtle::{TurtleCommand::*, TurtleCommandResponse};
 ///
 /// below the specified position is an output chest of infinite capacity
 /// ahead of the specified position is a chest of combustibles
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Depots {
     depots: Arc<Mutex<Vec<Arc<Mutex<Position>>>>>
 }

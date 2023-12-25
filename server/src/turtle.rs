@@ -10,9 +10,9 @@ use anyhow::Ok;
 
 use anyhow;
 use anyhow::Context;
-use log::trace;
-use log::warn;
-use log::info;
+use tracing::trace;
+use tracing::warn;
+use tracing::info;
 use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
@@ -139,7 +139,7 @@ impl Turtle {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TurtleCommander {
     sender: Arc<Sender>,
     world: World,
@@ -179,6 +179,7 @@ impl TurtleCommander {
         }
     }
 
+    #[tracing::instrument]
     pub async fn execute(&self, command: TurtleCommand) -> TurtleInfo {
         let (send, recv) = oneshot::channel::<TurtleInfo>();
 
@@ -211,6 +212,7 @@ impl TurtleCommander {
         self.world.clone()
     }
 
+    #[tracing::instrument]
     pub async fn dock(&self) -> usize {
         let mut wait = 1;
         loop {
@@ -229,6 +231,7 @@ impl TurtleCommander {
         self.depots.dock(self.clone()).await 
     }
 
+    #[tracing::instrument]
     pub async fn goto(&self, pos: Position) -> Option<()> {
         let mut recent = self.pos().await;
         let world = self.world.clone();
@@ -277,6 +280,7 @@ impl TurtleCommander {
         Some(())
     }
 
+    #[tracing::instrument]
     pub async fn goto_adjacent(&self, pos: Vec3) -> Option<Position> {
         let mut recent = self.pos().await;
         let world = self.world.clone();
@@ -324,7 +328,6 @@ impl TurtleCommander {
         Some(recent)
     }
 }
-
 
 pub(crate) async fn process_turtle_update(
     id: u32,

@@ -1,4 +1,4 @@
-use log::{error, info};
+use tracing::{error, info};
 use tokio::net::TcpListener;
 use tokio::signal;
 
