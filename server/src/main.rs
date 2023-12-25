@@ -24,6 +24,7 @@ use indoc::formatdoc;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_sdk::{trace::TracerProvider, runtime::Tokio};
 use opentelemetry_stdout as stdout;
+use tracing_subscriber::prelude::*;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Registry;
 
@@ -57,16 +58,16 @@ async fn main() -> Result<(), Error> {
         None => "save".into(),
     })?;
 
-    let provider = TracerProvider::builder()
-        .with_batch_exporter(opentelemetry_stdout::SpanExporter::default(),Tokio)
-        .build();
+    let tracer = opentelemetry_jaeger::new_agent_pipeline()
+        .with_service_name("avarus")
+        .install_simple()?;
+    let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+    tracing_subscriber::registry()
+        .with(opentelemetry)
+        .try_init()?;
 
-    let tracer = provider.tracer("avarus");
-
-    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-    let subscriber = Registry::default().with(telemetry);
-
-    tracing::subscriber::set_global_default(subscriber)?;
+    let root = span!(tracing::Level::INFO, "starting");
+    let enter = root.enter();
 
     info!("started");
 
