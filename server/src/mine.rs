@@ -289,7 +289,7 @@ impl Task for Quarry {
             return TaskState::Complete;
         }
 
-        if self.progress.allocated().await {
+        if self.progress.allocated() {
             return TaskState::Waiting;
         }
 
@@ -312,8 +312,9 @@ impl Task for Quarry {
 #[derive(Serialize, Deserialize, Clone)]
 struct ChunkedTask {
     confirmed: Arc<AtomicI32>,
+    head: Arc<AtomicI32>, // highest active chunk
     #[serde(skip)]
-    in_flight: Arc<RwLock<Vec<i32>>>,
+    in_flight: Arc<RwLock<Vec<i32>>>, // must remain sorted
     max: i32,
 }
 
@@ -321,6 +322,7 @@ impl ChunkedTask {
     fn new(parts: i32) -> Self { 
         Self {
             confirmed: Default::default(),
+            head: Default::default(),
             in_flight: Default::default(),
             max: parts,
         } 
@@ -328,32 +330,27 @@ impl ChunkedTask {
 
     fn done(&self) -> bool {
         let backstop = self.confirmed.load(Ordering::SeqCst);
-        backstop >= self.max
+        backstop + 1  >= self.max
     }
 
-    async fn allocated(&self) -> bool {
-        let mut in_flight = self.in_flight.clone().write_owned().await;
-        in_flight.sort_unstable();
-
-        let backstop = self.confirmed.load(Ordering::SeqCst);
-
-        for i in backstop..self.max {
-            if in_flight.get(i as usize).is_none() {
-                return false;
-            }
-        }
-
-        return true;
+    fn allocated(&self) -> bool {
+        let front = self.head.load(Ordering::SeqCst);
+        front + 1 >= self.max
     }
     async fn next_chunk(&self) -> Option<i32> {
         let mut in_flight = self.in_flight.clone().write_owned().await;
-        in_flight.sort_unstable();
 
         let backstop = self.confirmed.load(Ordering::SeqCst);
+
+        // we have a mutex anyway
+        if let Some(highest) = in_flight.last() {
+            self.head.store(*highest, Ordering::SeqCst);
+        }
 
         for i in backstop..self.max {
             if in_flight.get(i as usize).is_none() {
                 in_flight.push(i);
+                in_flight.sort_unstable();
                 return Some(i);
             }
         }
@@ -401,7 +398,7 @@ mod tests {
         assert_eq!(tracker.next_chunk().await, Some(4));
         assert_eq!(tracker.next_chunk().await, None);
         assert_eq!(tracker.done(), false);
-        assert_eq!(tracker.allocated().await, true);
+        assert_eq!(tracker.allocated(), true);
         tracker.mark_done(0).await;
         tracker.mark_done(1).await;
         tracker.mark_done(2).await;
