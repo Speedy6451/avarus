@@ -41,6 +41,8 @@ use super::paths::route;
 const COMMAND_TIMEOUT:  u64 = 0o372;
 /// Time (s) between turtle polls when idle
 pub const IDLE_TIME: u32 = 3;
+/// Times to attempt a route before giving up 
+pub const RETRIES: usize = 42;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Turtle {
@@ -253,14 +255,20 @@ impl TurtleCommander {
     pub async fn goto(&self, pos: Position) -> Option<()> {
         let mut recent = self.pos().await;
         let world = self.world.clone();
+        let mut attempts = RETRIES + 1;
         loop {
             if recent == pos {
                 break;
             }
 
-            // easiest way to not eventually take over all memory
-            let routing = timeout(Duration::from_secs(2), route(recent, pos, &world));
-            let route = routing.await.ok()??;
+            attempts -= 1;
+            if attempts == 0 {
+                error!("goto {pos:?} failed");
+                break;
+            }
+
+            let routing = route(recent, pos, &world);
+            let route = routing.await?;
 
             trace!("using route: {route:#?}");
 
@@ -302,6 +310,7 @@ impl TurtleCommander {
     pub async fn goto_adjacent(&self, pos: Vec3) -> Option<Position> {
         let mut recent = self.pos().await;
         let world = self.world.clone();
+        let mut attempts = RETRIES +1;
         loop {
             
             if pos == recent.dir.unit() + recent.pos 
@@ -311,8 +320,14 @@ impl TurtleCommander {
                 break;
             }
 
-            let routing = timeout(Duration::from_secs(1), route_facing(recent, pos, &world));
-            let route = routing.await.ok()??;
+            attempts -= 1;
+            if attempts == 0 {
+                error!("goto {pos:?} failed");
+                break;
+            }
+
+            let routing = route_facing(recent, pos, &world);
+            let route = routing.await?;
 
             let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| from.difference(**to).unwrap()).collect();
 

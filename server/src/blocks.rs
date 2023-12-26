@@ -9,7 +9,7 @@ use tokio::sync::{RwLock, OwnedRwLockReadGuard};
 
 use crate::{turtle::TurtleCommand, paths::{self, TRANSPARENT}};
 
-const CHUNK_SIZE: usize = 4;
+const CHUNK_SIZE: usize = 8;
 const CHUNK_VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 const CHUNK_VEC: Vec3  = Vec3::new(CHUNK_SIZE as i32, CHUNK_SIZE as i32, CHUNK_SIZE as i32);
 
@@ -361,5 +361,36 @@ mod tests {
     #[bench]
     fn positive_many_bench(b: &mut Bencher) {
         b.iter(||many(Vec3::new(1212,100,1292), Vec3::new(50, 50, 50)));
+    }
+
+    #[bench]
+    fn positive_many_get(b: &mut Bencher) {
+        let point = Vec3::new(1212,100,1292);
+        let size = Vec3::new(50,50,50);
+        let mut world = World::new();
+        for i in 0..size.product() {
+            let block = fill(size, i) + point;
+            world.set(Block { name: i.to_string(), pos: block});
+        }
+
+        b.iter(|| {
+            for i in 0..size.product() {
+                let block = fill(size, i) + point;
+                assert_eq!(i.to_string(), world.get(block).unwrap().name)
+            }
+        });
+    }
+
+    #[bench]
+    fn positive_many_set(b: &mut Bencher) {
+        let point = Vec3::new(1212,100,1292);
+        let size = Vec3::new(50,50,50);
+        b.iter(|| {
+            for i in 0..size.product() {
+                let mut world = World::new();
+                let block = fill(size, i) + point;
+                world.set(Block { name: i.to_string(), pos: block});
+            }
+        });
     }
 }
