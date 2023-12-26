@@ -1,4 +1,4 @@
-#![feature(iter_map_windows, iter_collect_into, int_roundings)]
+#![feature(iter_map_windows, iter_collect_into, int_roundings, test)]
 
 use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args, path, borrow::BorrowMut, time::Duration};
 

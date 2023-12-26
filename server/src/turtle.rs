@@ -198,7 +198,11 @@ impl TurtleCommander {
                                           // is left to read garbage
         };
 
-        let resp = recv.await.unwrap();
+        let resp = recv.await.unwrap_or_else(|_| {
+            error!("server dissapering"); 
+            TurtleInfo::from_update(TurtleUpdate { fuel: self.fuel(), ahead: "".into(), above: "".into(), below: "".into(), ret: TurtleCommandResponse::Failure }, self.name(), Position::new(Vec3::zeros(), Direction::North))
+        });
+
         let mut pos = self.pos.write().await;
         *pos = resp.pos;
         self.fuel.store(resp.fuel, std::sync::atomic::Ordering::SeqCst);

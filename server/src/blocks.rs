@@ -1,3 +1,4 @@
+extern crate test;
 use std::{sync::Arc, ops::Sub, collections::HashMap};
 
 use anyhow::{Ok, anyhow};
@@ -8,16 +9,24 @@ use tokio::sync::{RwLock, OwnedRwLockReadGuard};
 
 use crate::{turtle::TurtleCommand, paths::{self, TRANSPARENT}};
 
-const CHUNK_SIZE: usize = 16;
+const CHUNK_SIZE: usize = 4;
 const CHUNK_VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 const CHUNK_VEC: Vec3  = Vec3::new(CHUNK_SIZE as i32, CHUNK_SIZE as i32, CHUNK_SIZE as i32);
 
 #[derive(Serialize, Deserialize)]
-pub struct World(HashMap<Vec3, Chunk>); // TODO: make r-trees faster than this, for my sanity
+pub struct World { // TODO: make r-trees faster than this, for my sanity
+    index: HashMap<Vec3, usize>,
+    data: Vec<Chunk>,
+    last: Option<usize>,
+}
 
 impl World {
     pub fn new() -> Self {
-        World(HashMap::new())
+        World{
+           index:  HashMap::new(),
+           data: Vec::new(),
+           last: None,
+        }
     }
     pub fn get(&self, block: Vec3) -> Option<Block> {
         let chunk = self.get_chunk(block)?;
@@ -25,22 +34,36 @@ impl World {
     }
 
     pub fn set(&mut self, block: Block) {
-        let chunk = block.pos.map(|n| i32::div_floor(n,CHUNK_SIZE as i32));
-        match self.0.get_mut(&chunk) {
+        let chunk_coords = block.pos.map(|n| i32::div_floor(n,CHUNK_SIZE as i32));
+
+        let chunk = self.last
+            .filter(|n| self.data[*n].contains(&block.pos))
+            .or_else(|| {
+                self.index.get(&chunk_coords).map(|c| *c)
+            })
+            .map(|n| *self.last.insert(n));
+
+        match chunk {
             Some(chunk) => {
-                chunk.set(block).unwrap();
+                self.data[chunk].set(block).unwrap();
             },
             None => {
-                let mut new_chunk = Chunk::new(chunk);
+                let mut new_chunk = Chunk::new(chunk_coords);
                 new_chunk.set(block).unwrap();
-                self.0.insert(chunk, new_chunk);
+                self.data.push(new_chunk);
+                self.index.insert(chunk_coords, self.data.len() - 1);
             },
         }
     }
 
     fn get_chunk(&self, block: Vec3) -> Option<&Chunk> {
         let block = block.map(|n| i32::div_floor(n,CHUNK_SIZE as i32));
-        self.0.get(&block)
+        if let Some(last) = self.last {
+            if self.data[last].contains(&block) {
+                return Some(&self.data[last])
+            }
+        }
+        self.index.get(&block).map(|i| &self.data[*i])
     }
 }
 
@@ -127,7 +150,7 @@ impl Chunk {
     fn contains(&self, pos:&Vec3) -> bool {
         let chunk = self.pos.component_mul(&CHUNK_VEC);
         let local = pos - chunk;
-        local >= Vec3::zeros() && local <= CHUNK_VEC
+        local >= Vec3::zeros() && local < CHUNK_VEC
     }
 }
 
@@ -281,6 +304,10 @@ pub fn nearest(from: Vec3, to: Vec3) -> Position {
 
 #[cfg(test)]
 mod tests {
+    use test::Bencher;
+
+    use crate::mine::fill;
+
     use super::*;
 
     fn single_point(point: Vec3) {
@@ -288,6 +315,19 @@ mod tests {
         world.set(Block { name: "a".to_string(), pos: point});
 
         assert_eq!("a", world.get(point).unwrap().name);
+    }
+
+    fn many(point: Vec3, size: Vec3) {
+        let mut world = World::new();
+        for i in 0..size.product() {
+            let block = fill(size, i) + point;
+            world.set(Block { name: i.to_string(), pos: block});
+        }
+
+        for i in 0..size.product() {
+            let block = fill(size, i) + point;
+            assert_eq!(i.to_string(), world.get(block).unwrap().name)
+        }
     }
 
     #[test]
@@ -301,5 +341,25 @@ mod tests {
     #[test]
     fn small() {
         single_point(Vec3::new(-1212,100,-1292))
+    }
+
+    #[test]
+    fn positive_many() {
+        many(Vec3::new(1212,100,1292), Vec3::new(100, 100, 100))
+    }
+
+    #[test]
+    fn negative_many() {
+        many(Vec3::new(-1212,100,-1292), Vec3::new(100, 100, 100))
+    }
+
+    #[bench]
+    fn positive_several(b: &mut Bencher) {
+        b.iter(||many(Vec3::new(1212,100,1292), Vec3::new(100, 1, 30)));
+    }
+
+    #[bench]
+    fn positive_many_bench(b: &mut Bencher) {
+        b.iter(||many(Vec3::new(1212,100,1292), Vec3::new(50, 50, 50)));
     }
 }
