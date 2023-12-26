@@ -71,8 +71,11 @@ pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec
 }
 
 async fn near_valuables(turtle: &TurtleCommander, pos: Vec3, chunk: Vec3) -> Vec<Vec3> {
-    turtle.world().lock().await
-        .locate_within_distance(pos.into(), chunk.map(|n| n.pow(2)).sum()) 
+    let scan = (0..=(chunk*2).product()).map(|n| fill(chunk * 2, n) - chunk/2);
+        
+    let world = turtle.world().lock().await;
+    scan.map(|n| world.get(n))
+        .filter_map(|f| f)
         .filter(|n| n.name != "minecraft:air")
         .filter(|n| VALUABLE.iter().any(|v| n.name.contains(v)))
         .map(|b|b.pos).collect()

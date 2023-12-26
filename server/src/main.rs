@@ -1,4 +1,4 @@
-#![feature(iter_map_windows, iter_collect_into)]
+#![feature(iter_map_windows, iter_collect_into, int_roundings)]
 
 use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args, path, borrow::BorrowMut, time::Duration};
 
@@ -8,7 +8,7 @@ use axum::{
     routing::{get},
     Router,
 };
-use blocks::{SharedWorld, Position, };
+use blocks::{SharedWorld, Position, World, };
 use depot::Depots;
 use opentelemetry::global;
 use opentelemetry_sdk::{runtime::Tokio, trace::BatchConfig};
@@ -136,11 +136,15 @@ async fn flush(State(state): State<SharedControl>) -> &'static str {
 
 async fn write_to_disk(state: &LiveState) -> anyhow::Result<()> {
     let tasks = &state.tasks;
-    let state = state.save().await;
+    let mut turtles = Vec::new();
+    for turtle in state.turtles.iter() {
+        turtles.push(turtle.read().await.info());
+    };
+    let depots = state.depots.clone().to_vec().await;
 
-    let turtles = serde_json::to_string_pretty(&state.turtles)?;
-    let world = bincode::serialize(&state.world)?;
-    let depots = serde_json::to_string_pretty(&state.depots)?;
+    let turtles = serde_json::to_string_pretty(&turtles)?;
+    let world = bincode::serialize(&*state.world.clone().lock().await)?;
+    let depots = serde_json::to_string_pretty(&depots)?;
     let tasks = serde_json::to_string_pretty(tasks)?;
 
     let path = &SAVE.get().unwrap();
@@ -152,7 +156,7 @@ async fn write_to_disk(state: &LiveState) -> anyhow::Result<()> {
 }
 
 async fn read_from_disk(kill: watch::Sender<bool>) -> anyhow::Result<LiveState> {
-    let turtles = match tokio::fs::OpenOptions::new()
+    let turtles: Vec<Turtle> = match tokio::fs::OpenOptions::new()
         .read(true)
         .open(SAVE.get().unwrap().join("turtles.json"))
         .await
@@ -192,27 +196,32 @@ async fn read_from_disk(kill: watch::Sender<bool>) -> anyhow::Result<LiveState> 
     .read(true).open(SAVE.get().unwrap().join("world.bin")).await {
         tokio::io::Result::Ok(file) => bincode::deserialize_from(file.into_std().await)?,
         tokio::io::Result::Err(e) => match e.kind() {
-            ErrorKind::NotFound => RTree::new(),
+            ErrorKind::NotFound => World::new(),
             _ => panic!(),
         },
         
     };
 
-    let saved = SavedState {
-        turtles,
-        world,
-        depots,
+    let scheduler = scheduler;let sender = kill;
+    let mut bound_turtles: Vec<Turtle> = Vec::new();
+    for turtle in turtles.into_iter() {
+        let (tx, rx) = mpsc::channel(1);
+        bound_turtles.push(Turtle::with_channel(turtle.name.to_num(), turtle.position, turtle.fuel, turtle.fuel_limit, tx, rx));
     };
-
-    let live = LiveState::from_save(saved, scheduler, kill);
-
-    Ok(live)
+    let depots = Depots::from_vec(depots);
+    
+    Ok(LiveState { turtles: bound_turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: scheduler, 
+        world: SharedWorld::from_world(world),
+        depots,
+        started: Instant::now(),
+        kill:sender,
+    })
 }
 
 #[derive(Serialize, Deserialize)]
 struct SavedState {
     turtles: Vec<turtle::Turtle>,
-    world: RTree<Block>,
+    world: World,
     depots: Vec<Position>,
     //chunkloaders: unimplemented!(),
 }
@@ -227,15 +236,6 @@ struct LiveState {
 }
 
 impl LiveState {
-    async fn save(&self) -> SavedState {
-        let mut turtles = Vec::new();
-        for turtle in self.turtles.iter() {
-            turtles.push(turtle.read().await.info());
-        };
-        let depots = self.depots.clone().to_vec().await;
-        SavedState { turtles, world: self.world.tree().await, depots }
-    }
-
     fn from_save(save: SavedState, scheduler: Scheduler, sender: watch::Sender<bool>) -> Self {
         let mut turtles = Vec::new();
         for turtle in save.turtles.into_iter() {
@@ -244,7 +244,7 @@ impl LiveState {
         };
         let depots = Depots::from_vec(save.depots);
             
-        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: scheduler, world: SharedWorld::from_tree(save.world),
+        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: scheduler, world: SharedWorld::from_world(save.world),
             depots,
             started: Instant::now(),
             kill:sender,

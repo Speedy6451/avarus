@@ -74,7 +74,7 @@ fn next(from: &Position, world: &World) -> Vec<(Position, u32)> {
         unknown: Option<u32>,
     ) {
         world
-            .locate_at_point(&point.into())
+            .get(point)
             .map_or(unknown, |b| difficulty(&b.name))
             .map(|d| vec.push((Position::new(point, orientation), d)));
     }

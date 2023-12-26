@@ -1,11 +1,10 @@
-use std::{sync::Arc, ops::Sub};
+use std::{sync::Arc, ops::Sub, collections::HashMap};
 
-use anyhow::Ok;
+use anyhow::{Ok, anyhow};
 use nalgebra::Vector3;
 use rstar::{PointDistance, RTree, RTreeObject, AABB, Envelope};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, OwnedRwLockReadGuard};
-use memoize::memoize;
 
 use crate::{turtle::TurtleCommand, paths::{self, TRANSPARENT}};
 
@@ -13,41 +12,36 @@ const CHUNK_SIZE: usize = 16;
 const CHUNK_VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 const CHUNK_VEC: Vec3  = Vec3::new(CHUNK_SIZE as i32, CHUNK_SIZE as i32, CHUNK_SIZE as i32);
 
-pub struct World(RTree<Chunk>);
+#[derive(Serialize, Deserialize)]
+pub struct World(HashMap<Vec3, Chunk>); // TODO: make r-trees faster than this, for my sanity
 
 impl World {
+    pub fn new() -> Self {
+        World(HashMap::new())
+    }
     pub fn get(&self, block: Vec3) -> Option<Block> {
-        let chunk = block.component_div(&CHUNK_VEC);
-        let chunk = self.get_chunk(chunk)?;
-        chunk.get(block)
+        let chunk = self.get_chunk(block)?;
+        Some(chunk.get(block)?)
     }
 
-    pub fn set(&mut self, block: Block) -> Option<Block> {
-        let chunk = block.pos.component_div(&CHUNK_VEC);
-        let chunk = self.get_chunk(chunk)?;
-        chunk.set(block)
-    }
-
-    fn get_chunk(&self, block: Vec3) -> &Chunk {
-        let block = block.component_div(&CHUNK_VEC);
-        if let Some(chunk) = self.0.locate_at_point(&block.into()) {
-            return chunk;
+    pub fn set(&mut self, block: Block) {
+        let chunk = block.pos.map(|n| i32::div_floor(n,CHUNK_SIZE as i32));
+        match self.0.get_mut(&chunk) {
+            Some(chunk) => {
+                chunk.set(block).unwrap();
+            },
+            None => {
+                let mut new_chunk = Chunk::new(chunk);
+                new_chunk.set(block).unwrap();
+                self.0.insert(chunk, new_chunk);
+            },
         }
-        self.0.insert(Chunk::new(block));
-        &Chunk::new(block)
     }
 
-    pub fn get_bulk<const COUNT:usize>(&self, blocks: [Vec3;COUNT]) -> [Option<&Block>;COUNT] {
-        let mut chunk: Option<&Chunk> = None;
-
-        blocks.iter().map(|b|{
-            if !chunk.is_some_and(|c| c.contains(b)) {
-                chunk = Some(self.get_chunk(b));
-            }
-            chunk.unwrap().get(b)
-        }).collect()
+    fn get_chunk(&self, block: Vec3) -> Option<&Chunk> {
+        let block = block.map(|n| i32::div_floor(n,CHUNK_SIZE as i32));
+        self.0.get(&block)
     }
-    
 }
 
 #[derive(Clone)]
@@ -57,11 +51,11 @@ pub struct SharedWorld {
 }
 
 impl SharedWorld {
-    pub fn new() -> Self { Self { state: Arc::new(RwLock::new(RTree::new())) } }
+    pub fn new() -> Self { Self { state: Arc::new(RwLock::new(World::new())) } }
     pub fn from_world(tree: World) -> Self { Self { state: Arc::new(RwLock::new(tree)) } }
 
     pub async fn get(&self, block: Vec3) -> Option<Block> {
-        self.state.read().await.get(block)
+        Some(self.state.read().await.get(block)?.clone())
     }
 
     pub async fn set(&self, block: Block) {
@@ -92,43 +86,48 @@ pub struct Block {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Chunk {
     pos: Vec3, /// position in chunk coordinates (world/16)
-    data: [[[Option<Block>;CHUNK_SIZE];CHUNK_SIZE];CHUNK_SIZE]
+    data: [[[Option<String>;CHUNK_SIZE];CHUNK_SIZE];CHUNK_SIZE]
 }
 
 impl Chunk {
     fn new(pos: Vec3) -> Self {
+        let data :[[[Option<String>;CHUNK_SIZE];CHUNK_SIZE];CHUNK_SIZE]= Default::default();
         Self {
             pos,
-            data:[[[None;CHUNK_SIZE];CHUNK_SIZE];CHUNK_SIZE]
+            data
         }
     }
 
-    fn set(&mut self, pos: Block) -> Result<(), ()> {
+    fn set(&mut self, pos: Block) -> anyhow::Result<()> {
         let chunk = self.pos.component_mul(&CHUNK_VEC);
-        let local = pos.pos - chunk;
-        if !self.contains(&pos) {
-            return Err(());
+        if !self.contains(&pos.pos) {
+            return Err(anyhow!("out of bounds"));
         }
+        let local: Vector3<usize> = (pos.pos - chunk).map(|n| n as usize);
 
-        self.data[local.x][local.y][local.z] = pos;
+        self.data[local.x][local.y][local.z] = Some(pos.name);
 
         Ok(())
     }
 
-    fn get(&self, pos: Position) -> Option<&Block> {
+    fn get(&self, pos: Vec3) -> Option<Block> {
         let chunk = self.pos.component_mul(&CHUNK_VEC);
-        let local = pos.pos - chunk;
+        let local = pos - chunk;
         if !self.contains(&pos) {
             return None;
         }
+        let local = local.map(|n| n as usize);
 
-        Ok(self.data[local.x][local.y][local.z])
+        Some(Block {
+            name: self.data[local.x][local.y][local.z].clone()?,
+            pos,
+        })
     }
 
-    fn contains(&self, pos:&Position) -> bool {
+    fn contains(&self, pos:&Vec3) -> bool {
         let chunk = self.pos.component_mul(&CHUNK_VEC);
-        let local = pos.pos - chunk;
-        AABB::from_corners(chunk, chunk+CHUNK_VEC).contains_point(&local)
+        let local = pos - chunk;
+        local >= Vec3::zeros() && local <= CHUNK_VEC
     }
 }
 
@@ -277,5 +276,30 @@ pub fn nearest(from: Vec3, to: Vec3) -> Position {
     Position {
         pos: to - dir.unit(),
         dir
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn single_point(point: Vec3) {
+        let mut world = World::new();
+        world.set(Block { name: "a".to_string(), pos: point});
+
+        assert_eq!("a", world.get(point).unwrap().name);
+    }
+
+    #[test]
+    fn origin() {
+        single_point(Vec3::zeros())
+    }
+    #[test]
+    fn big() {
+        single_point(Vec3::new(1212,100,1292))
+    }
+    #[test]
+    fn small() {
+        single_point(Vec3::new(-1212,100,-1292))
     }
 }
