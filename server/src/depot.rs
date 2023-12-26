@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use tracing::{warn, info, trace};
-use tokio::sync::{Mutex, OwnedMutexGuard, Semaphore};
+use tokio::sync::{Mutex, OwnedMutexGuard, Semaphore, OwnedSemaphorePermit};
 
 use crate::{blocks::Position, turtle::TurtleCommander};
 use crate::turtle::{TurtleCommand::*, TurtleCommandResponse};
@@ -17,21 +17,39 @@ pub struct Depots {
     depot_semaphore: Arc<Semaphore>,
 }
 
+pub struct DepotGuard {
+    mutex: OwnedMutexGuard<Position>,
+    #[allow(unused)]
+    semaphore: OwnedSemaphorePermit, // "dropped in declaration order"
+                                     //  - reference chapter 10.8
+}
+
+impl DepotGuard {
+    pub fn new(mutex: OwnedMutexGuard<Position>, semaphore: OwnedSemaphorePermit) -> Self { Self { mutex, semaphore } }
+
+    fn position(&self) -> &Position {
+        &self.mutex
+    }
+    
+}
+
 impl Depots {
     /// Nearest depot to the given position
-    pub async fn nearest(&self, pos: Position) -> Option<OwnedMutexGuard<Position>> {
-        self.depots.lock().await
+    pub async fn nearest(&self, pos: Position) -> DepotGuard {
+        let permit = self.depot_semaphore.clone().acquire_owned().await.unwrap();
+        let mutex = self.depots.lock().await
             .iter().map(|i| i.clone())
             .filter_map(|i| i.try_lock_owned().ok())
             .min_by_key(|d| d.manhattan(pos))
-            .map(|d| d)
+            .map(|d| d);
+
+        DepotGuard::new(mutex.unwrap(), permit)
     }
 
     pub async fn dock(&self, turtle: TurtleCommander) -> Option<usize> {
-        let permit = self.depot_semaphore.clone().acquire_owned().await.unwrap();
-        let depot = self.clone().nearest(turtle.pos().await).await?;
-        trace!("depot at {depot:?}");
-        turtle.goto(*depot).await?;
+        let depot = self.clone().nearest(turtle.pos().await).await;
+        trace!("depot at {:?}", depot.position());
+        turtle.goto(*depot.position()).await?;
 
         // dump inventory
         for i in 1..=16 {
@@ -61,7 +79,6 @@ impl Depots {
         turtle.execute(Backward(4)).await;
 
         drop(depot);
-        drop(permit);
 
         // lava bucket fix
         for i in 1..=16 {
