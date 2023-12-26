@@ -216,7 +216,7 @@ impl Task for Mine {
     }
 }
 
-const MAX_MINERS: usize = 4;
+const MAX_MINERS: usize = 42;
 
 #[derive(Serialize, Deserialize,Clone)]
 pub struct Quarry {
@@ -311,6 +311,10 @@ impl Task for Quarry {
 
         if self.confirmed.load(Ordering::SeqCst) >= chunks.product() {
             return TaskState::Complete;
+        }
+
+        if self.head.load(Ordering::SeqCst) >= chunks.product() {
+            return TaskState::Waiting;
         }
 
         let only = self.miners.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {

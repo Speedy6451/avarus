@@ -1,6 +1,7 @@
 use crate::{
     blocks::{World, Position, Direction, Vec3, WorldReadLock},
 };
+use tokio::task::spawn_blocking;
 use tracing::{trace, error};
 use pathfinding::prelude::astar;
 
@@ -8,7 +9,7 @@ const LOOKUP_LIMIT: usize = 10_000_000;
 
 #[tracing::instrument(skip(world))]
 pub async fn route_facing(from: Position, to: Vec3, world: &World) -> Option<Vec<Position>> {
-    let facing = |p: &Position| {
+    let facing = move |p: &Position| {
         let ahead = p.dir.unit() + p.pos;
         let above = Vec3::y() + p.pos;
         let below = -Vec3::y() + p.pos;
@@ -26,17 +27,19 @@ pub async fn route(from: Position, to: Position, world: &World) -> Option<Vec<Po
     {
         return None;
     }
-    route_to(from, to.pos, |p| p == &to, world).await
+    route_to(from, to.pos, move |p| p == &to, world).await
 }
 
 async fn route_to<D>(from: Position, to: Vec3, mut done: D, world: &World) -> Option<Vec<Position>>
-where D: FnMut(&Position) -> bool {
+where D: FnMut(&Position) -> bool + Send + 'static {
     // lock once, we'll be doing a lot of lookups
     let world = world.clone().lock().await;
 
     let mut limit = LOOKUP_LIMIT;
 
-    let route = astar(
+    let route = 
+        spawn_blocking( move ||
+        astar(
         &from,
         move |p| next(p, &world),
         |p1| (p1.pos - &to).abs().sum() as u32,
@@ -48,7 +51,7 @@ where D: FnMut(&Position) -> bool {
                 done(p)
             }
         },
-    )?;
+    )).await.unwrap()?;
 
     trace!("scanned {} states", LOOKUP_LIMIT-limit);
     if limit != 0 {

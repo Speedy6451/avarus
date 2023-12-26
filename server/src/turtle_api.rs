@@ -46,12 +46,25 @@ pub fn turtle_api() -> Router<SharedControl> {
         .route("/:id/manual", post(run_command))
         .route("/:id/dock", post(dock))
         .route("/:id/info", get(turtle_info))
+        .route("/:id/register", get(register_turtle))
         .route("/createTreeFarm", post(fell))
         .route("/createMine", post(dig))
         .route("/registerDepot", post(new_depot))
         .route("/pollScheduler", get(poll))
         .route("/shutdown", get(shutdown)) // probably tramples the rfc
         .route("/updateAll", get(update_turtles))
+}
+
+pub(crate) async fn register_turtle(
+    Path(id): Path<u32>,
+    State(state): State<SharedControl>,
+) -> &'static str {
+    let state = &mut state.write().await;
+    let commander = state.get_turtle(id).await.unwrap().clone();
+    state.tasks.add_turtle(&commander);
+    info!("registered turtle: {id}");
+
+    "ACK"
 }
 
 pub(crate) async fn create_turtle(

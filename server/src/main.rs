@@ -1,6 +1,6 @@
 #![feature(iter_map_windows, iter_collect_into)]
 
-use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args, path, borrow::BorrowMut};
+use std::{collections::VecDeque, io::ErrorKind, sync::Arc, env::args, path, borrow::BorrowMut, time::Duration};
 
 use anyhow::{Error, Ok};
 use axum::{
@@ -11,6 +11,7 @@ use axum::{
 use blocks::{World, Position, };
 use depot::Depots;
 use opentelemetry::global;
+use opentelemetry_sdk::{runtime::Tokio, trace::BatchConfig};
 use tower_http::trace::TraceLayer;
 use tracing::{info, span, Level};
 use rstar::RTree;
@@ -57,11 +58,6 @@ async fn main() -> Result<(), Error> {
 
     global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
 
-    let tracer = opentelemetry_jaeger::new_pipeline()
-        .with_service_name("avarus")
-        .install_simple()?;
-
-    let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
     let filter = filter::Targets::new()
         .with_default(Level::INFO)
@@ -80,12 +76,30 @@ async fn main() -> Result<(), Error> {
         .with_span_events(FmtSpan::ACTIVE)
         .with_filter(filter);
 
-    tracing_subscriber::registry()
-        .with(opentelemetry)
-        .with(subscriber)
-        .try_init()?;
+    let reg = tracing_subscriber::registry()
+        .with(subscriber);
+
+    let otel = false;
+    if otel {
+        let batch = BatchConfig::default()
+            .with_max_queue_size(65536)
+            .with_scheduled_delay(Duration::from_millis(800));
+
+        let tracer = opentelemetry_jaeger::new_agent_pipeline()
+            .with_service_name(format!("avarus-{}", SAVE.get().unwrap().display()))
+            .with_auto_split_batch(true)
+            .with_batch_processor_config(batch)
+            .install_batch(Tokio)?;
+        
+        reg.with(tracing_opentelemetry::layer().with_tracer(tracer))
+            .try_init()?;
+    } else {
+        reg.try_init()?;
+    }
+
 
     info!("starting");
+
 
     let (kill_send, kill_recv) = watch::channel(false);
 

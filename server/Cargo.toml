@@ -10,16 +10,12 @@ anyhow = "1.0.75"
 axum = "0.7.2"
 bincode = "1.3.3"
 bit-struct = "0.3.2"
-const_format = "0.2.32"
 erased-serde = "0.4.1"
 feistel_rs = "0.1.0"
-future-parking_lot = "0.3.3"
-hilbert_index = "0.2.0"
 hyper = "1.0.1"
 hyper-util = "0.1.1"
 indoc = "2.0.4"
 nalgebra = { version = "0.32.3", features = ["serde-serialize"] }
-parking_lot = { version = "0.11", features = ["serde"] }
 pathfinding = "4.6.0"
 rstar = { version = "0.11.0", features = ["serde"] }
 rustmatica = "0.1.1"
@@ -40,7 +36,7 @@ tracing = "0.1"
 typetag = "0.2.14"
 ucnlnav = { git = "https://github.com/ucnl/UCNLNav.git", version = "0.1.0" }
 tracing-subscriber = { version = "0.3", features = ["registry"] }
-console-subscriber = "0.1.5"
-opentelemetry = "0.17.0"
-tracing-opentelemetry = "0.17.2"
-opentelemetry-jaeger = "0.16.0"
+opentelemetry = "0.21.0"
+tracing-opentelemetry = "0.22"
+opentelemetry-jaeger = { version = "0.20", features = ["rt-tokio"] }
+opentelemetry_sdk = { version = "0.21.1", features = ["trace"] }
