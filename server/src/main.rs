@@ -66,14 +66,14 @@ async fn main() -> Result<(), Error> {
         .with_target("server::paths", Level::ERROR)
         .with_target("server::turtle_api", Level::INFO)
         .with_target("server::fell", Level::WARN)
-        .with_target("server::mine", Level::WARN)
+        .with_target("server::mine", Level::INFO)
         .with_target("server::depot", Level::TRACE);
 
     let subscriber = tracing_subscriber::fmt::layer()
         .compact()
         .with_file(false)
         .with_target(true)
-        .with_span_events(FmtSpan::ACTIVE)
+        //.with_span_events(FmtSpan::ACTIVE)
         .with_filter(filter);
 
     let reg = tracing_subscriber::registry()

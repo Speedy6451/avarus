@@ -265,6 +265,8 @@ impl Task for Quarry {
             }
             let chunk = chunk.unwrap();
 
+            info!("#{} doing chunk {chunk}", turtle.name().to_str());
+
             let max_chunk = Vec3::new(4,4,4);
             let e = owned.size.component_div(&max_chunk);
 
@@ -282,9 +284,6 @@ impl Task for Quarry {
     }
 
     fn poll(&mut self) -> TaskState {
-        let max_chunk = Vec3::new(4,4,4);
-        let chunks = self.size.component_div(&max_chunk);
-
         if self.progress.done() {
             return TaskState::Complete;
         }
@@ -312,6 +311,7 @@ impl Task for Quarry {
 #[derive(Serialize, Deserialize, Clone)]
 struct ChunkedTask {
     confirmed: Arc<AtomicI32>,
+    #[serde(skip_deserializing)]
     head: Arc<AtomicI32>, // highest active chunk
     #[serde(skip)]
     in_flight: Arc<RwLock<Vec<i32>>>, // must remain sorted
@@ -330,7 +330,7 @@ impl ChunkedTask {
 
     fn done(&self) -> bool {
         let backstop = self.confirmed.load(Ordering::SeqCst);
-        backstop + 1  >= self.max
+        backstop >= self.max
     }
 
     fn allocated(&self) -> bool {
@@ -340,6 +340,8 @@ impl ChunkedTask {
     async fn next_chunk(&self) -> Option<i32> {
         let mut in_flight = self.in_flight.clone().write_owned().await;
 
+        tracing::trace!("running: {:?}", in_flight);
+
         let backstop = self.confirmed.load(Ordering::SeqCst);
 
         // we have a mutex anyway
@@ -348,9 +350,10 @@ impl ChunkedTask {
         }
 
         for i in backstop..self.max {
-            if in_flight.get(i as usize).is_none() {
+            if !in_flight.contains(&i) {
                 in_flight.push(i);
                 in_flight.sort_unstable();
+                info!("next: {i}");
                 return Some(i);
             }
         }
@@ -368,7 +371,7 @@ impl ChunkedTask {
         if min { // make sure that head is no less than min
             loop {
                 let curr = self.confirmed.load(Ordering::SeqCst);
-                if let Ok(_) = self.confirmed.compare_exchange(curr, curr.max(chunk), Ordering::AcqRel, Ordering::SeqCst) {
+                if let Ok(_) = self.confirmed.compare_exchange(curr, curr.max(chunk+1), Ordering::AcqRel, Ordering::SeqCst) {
                     break;
                 }
             }
@@ -391,20 +394,20 @@ mod tests {
     async fn linear() {
         let tracker = ChunkedTask::new(5);
         assert_eq!(tracker.next_chunk().await, Some(0));
+        tracker.mark_done(0).await;
         assert_eq!(tracker.next_chunk().await, Some(1));
+        tracker.mark_done(1).await;
         assert_eq!(tracker.next_chunk().await, Some(2));
         assert_eq!(tracker.done(), false);
+        tracker.mark_done(2).await;
         assert_eq!(tracker.next_chunk().await, Some(3));
+        tracker.mark_done(3).await;
         assert_eq!(tracker.next_chunk().await, Some(4));
         assert_eq!(tracker.next_chunk().await, None);
         assert_eq!(tracker.done(), false);
+        assert_eq!(tracker.next_chunk().await, None);
         assert_eq!(tracker.allocated(), true);
-        tracker.mark_done(0).await;
-        tracker.mark_done(1).await;
-        tracker.mark_done(2).await;
-        tracker.mark_done(3).await;
         tracker.mark_done(4).await;
-        tracker.mark_done(5).await;
         assert_eq!(tracker.done(), true);
     }
 
