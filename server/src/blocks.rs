@@ -1,46 +1,84 @@
 use std::{sync::Arc, ops::Sub};
 
+use anyhow::Ok;
 use nalgebra::Vector3;
-use rstar::{PointDistance, RTree, RTreeObject, AABB};
+use rstar::{PointDistance, RTree, RTreeObject, AABB, Envelope};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, OwnedRwLockReadGuard};
+use memoize::memoize;
 
 use crate::{turtle::TurtleCommand, paths::{self, TRANSPARENT}};
 
-pub type WorldReadLock = OwnedRwLockReadGuard<RTree<Block>>;
+const CHUNK_SIZE: usize = 16;
+const CHUNK_VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+const CHUNK_VEC: Vec3  = Vec3::new(CHUNK_SIZE as i32, CHUNK_SIZE as i32, CHUNK_SIZE as i32);
 
-#[derive(Clone)]
-pub struct World {
-    state: Arc<RwLock<RTree<Block>>>, // interior mutability to get around the 
-                                      // questionable architecture of this project
-}
+pub struct World(RTree<Chunk>);
 
 impl World {
+    pub fn get(&self, block: Vec3) -> Option<Block> {
+        let chunk = block.component_div(&CHUNK_VEC);
+        let chunk = self.get_chunk(chunk)?;
+        chunk.get(block)
+    }
+
+    pub fn set(&mut self, block: Block) -> Option<Block> {
+        let chunk = block.pos.component_div(&CHUNK_VEC);
+        let chunk = self.get_chunk(chunk)?;
+        chunk.set(block)
+    }
+
+    fn get_chunk(&self, block: Vec3) -> &Chunk {
+        let block = block.component_div(&CHUNK_VEC);
+        if let Some(chunk) = self.0.locate_at_point(&block.into()) {
+            return chunk;
+        }
+        self.0.insert(Chunk::new(block));
+        &Chunk::new(block)
+    }
+
+    pub fn get_bulk<const COUNT:usize>(&self, blocks: [Vec3;COUNT]) -> [Option<&Block>;COUNT] {
+        let mut chunk: Option<&Chunk> = None;
+
+        blocks.iter().map(|b|{
+            if !chunk.is_some_and(|c| c.contains(b)) {
+                chunk = Some(self.get_chunk(b));
+            }
+            chunk.unwrap().get(b)
+        }).collect()
+    }
+    
+}
+
+#[derive(Clone)]
+pub struct SharedWorld {
+    state: Arc<RwLock<World>>, // interior mutability to get around the 
+                              // questionable architecture of this project
+}
+
+impl SharedWorld {
     pub fn new() -> Self { Self { state: Arc::new(RwLock::new(RTree::new())) } }
-    pub fn from_tree(tree: RTree<Block>) -> Self { Self { state: Arc::new(RwLock::new(tree)) } }
-    pub async fn to_tree(self) -> RTree<Block> { self.state.write().await.to_owned() }
-    pub async fn tree(&self) -> RTree<Block> { self.state.read().await.clone() }
+    pub fn from_world(tree: World) -> Self { Self { state: Arc::new(RwLock::new(tree)) } }
 
     pub async fn get(&self, block: Vec3) -> Option<Block> {
-        self.state.read().await.locate_at_point(&block.into()).map(|b| b.to_owned())
+        self.state.read().await.get(block)
     }
 
     pub async fn set(&self, block: Block) {
-        self.state.write().await.remove_at_point(&block.pos.into());
-        self.state.write().await.insert(block);
+        self.state.write().await.set(block);
     }
 
     /// Returns true if a known non-traversable block exists at the point
     pub async fn occupied(&self, block: Vec3) -> bool {
-        self.state.read().await.locate_at_point(&block.into()).is_some_and(|b| !TRANSPARENT.contains(&b.name.as_str()))
+        self.get(block).await.is_some_and(|b| !TRANSPARENT.contains(&b.name.as_str()))
     }
 
     /// Returns true if a "garbage" block exists at the given point which you are free to destroy
     pub async fn garbage(&self, block: Vec3) -> bool {
-        self.state.read().await.locate_at_point(&block.into()).is_some_and(|b| paths::difficulty(&b.name).is_some())
+        self.get(block).await.is_some_and(|b| paths::difficulty(&b.name).is_some())
     }
 
-    pub async fn lock(self) -> WorldReadLock {
+    pub async fn lock(self) -> OwnedRwLockReadGuard<World> {
         self.state.read_owned().await
     }
 }
@@ -51,7 +89,50 @@ pub struct Block {
     pub pos: Vec3,
 }
 
-impl RTreeObject for Block {
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Chunk {
+    pos: Vec3, /// position in chunk coordinates (world/16)
+    data: [[[Option<Block>;CHUNK_SIZE];CHUNK_SIZE];CHUNK_SIZE]
+}
+
+impl Chunk {
+    fn new(pos: Vec3) -> Self {
+        Self {
+            pos,
+            data:[[[None;CHUNK_SIZE];CHUNK_SIZE];CHUNK_SIZE]
+        }
+    }
+
+    fn set(&mut self, pos: Block) -> Result<(), ()> {
+        let chunk = self.pos.component_mul(&CHUNK_VEC);
+        let local = pos.pos - chunk;
+        if !self.contains(&pos) {
+            return Err(());
+        }
+
+        self.data[local.x][local.y][local.z] = pos;
+
+        Ok(())
+    }
+
+    fn get(&self, pos: Position) -> Option<&Block> {
+        let chunk = self.pos.component_mul(&CHUNK_VEC);
+        let local = pos.pos - chunk;
+        if !self.contains(&pos) {
+            return None;
+        }
+
+        Ok(self.data[local.x][local.y][local.z])
+    }
+
+    fn contains(&self, pos:&Position) -> bool {
+        let chunk = self.pos.component_mul(&CHUNK_VEC);
+        let local = pos.pos - chunk;
+        AABB::from_corners(chunk, chunk+CHUNK_VEC).contains_point(&local)
+    }
+}
+
+impl RTreeObject for Chunk {
     type Envelope = AABB<[i32; 3]>;
 
     fn envelope(&self) -> Self::Envelope {
@@ -59,7 +140,7 @@ impl RTreeObject for Block {
     }
 }
 
-impl PointDistance for Block {
+impl PointDistance for Chunk {
     fn distance_2(&self, point: &[i32; 3]) -> i32 {
         (self.pos - Vec3::from(*point)).abs().sum()
     }

@@ -2,7 +2,7 @@ use crate::blocks::Block;
 use crate::blocks::Direction;
 use crate::blocks::Position;
 use crate::blocks::Vec3;
-use crate::blocks::World;
+use crate::blocks::SharedWorld;
 use crate::depot::Depots;
 use crate::paths::route_facing;
 
@@ -144,7 +144,7 @@ impl Turtle {
 #[derive(Clone)]
 pub struct TurtleCommander {
     sender: Arc<Sender>,
-    world: World,
+    world: SharedWorld,
     depots: Depots,
     // everything below is best-effort
     // TODO: make not bad
@@ -221,7 +221,7 @@ impl TurtleCommander {
         self.max_fuel.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    pub fn world(&self) -> World {
+    pub fn world(&self) -> SharedWorld {
         self.world.clone()
     }
 

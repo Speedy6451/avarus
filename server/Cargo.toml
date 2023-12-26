@@ -40,3 +40,4 @@ opentelemetry = "0.21.0"
 tracing-opentelemetry = "0.22"
 opentelemetry-jaeger = { version = "0.20", features = ["rt-tokio"] }
 opentelemetry_sdk = { version = "0.21.1", features = ["trace"] }
+memoize = "0.4.2"

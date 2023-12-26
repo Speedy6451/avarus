@@ -8,7 +8,7 @@ use axum::{
     routing::{get},
     Router,
 };
-use blocks::{World, Position, };
+use blocks::{SharedWorld, Position, };
 use depot::Depots;
 use opentelemetry::global;
 use opentelemetry_sdk::{runtime::Tokio, trace::BatchConfig};
@@ -220,7 +220,7 @@ struct SavedState {
 struct LiveState {
     turtles: Vec<Arc<RwLock<turtle::Turtle>>>,
     tasks: Scheduler,
-    world: blocks::World,
+    world: blocks::SharedWorld,
     depots: Depots,
     started: Instant,
     kill: watch::Sender<bool>,
@@ -244,7 +244,7 @@ impl LiveState {
         };
         let depots = Depots::from_vec(save.depots);
             
-        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: scheduler, world: World::from_tree(save.world),
+        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: scheduler, world: SharedWorld::from_tree(save.world),
             depots,
             started: Instant::now(),
             kill:sender,

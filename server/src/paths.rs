@@ -1,6 +1,7 @@
 use crate::{
-    blocks::{World, Position, Direction, Vec3, WorldReadLock},
+    blocks::{SharedWorld, Position, Direction, Vec3, World, nearest, Block},
 };
+use rstar::{AABB, Envelope};
 use tokio::task::spawn_blocking;
 use tracing::{trace, error};
 use pathfinding::prelude::astar;
@@ -8,7 +9,7 @@ use pathfinding::prelude::astar;
 const LOOKUP_LIMIT: usize = 10_000_000;
 
 #[tracing::instrument(skip(world))]
-pub async fn route_facing(from: Position, to: Vec3, world: &World) -> Option<Vec<Position>> {
+pub async fn route_facing(from: Position, to: Vec3, world: &SharedWorld) -> Option<Vec<Position>> {
     let facing = move |p: &Position| {
         let ahead = p.dir.unit() + p.pos;
         let above = Vec3::y() + p.pos;
@@ -19,7 +20,7 @@ pub async fn route_facing(from: Position, to: Vec3, world: &World) -> Option<Vec
 }
 
 #[tracing::instrument(skip(world))]
-pub async fn route(from: Position, to: Position, world: &World) -> Option<Vec<Position>> {
+pub async fn route(from: Position, to: Position, world: &SharedWorld) -> Option<Vec<Position>> {
     trace!("routing from {from:?} to {to:?}");
     // attempt at not crashing by looking infinitely into the abyss
     if world.get(to.pos).await
@@ -30,7 +31,7 @@ pub async fn route(from: Position, to: Position, world: &World) -> Option<Vec<Po
     route_to(from, to.pos, move |p| p == &to, world).await
 }
 
-async fn route_to<D>(from: Position, to: Vec3, mut done: D, world: &World) -> Option<Vec<Position>>
+async fn route_to<D>(from: Position, to: Vec3, mut done: D, world: &SharedWorld) -> Option<Vec<Position>>
 where D: FnMut(&Position) -> bool + Send + 'static {
     // lock once, we'll be doing a lot of lookups
     let world = world.clone().lock().await;
@@ -62,14 +63,14 @@ where D: FnMut(&Position) -> bool + Send + 'static {
     }
 }
 
-fn next(from: &Position, world: &WorldReadLock) -> Vec<(Position, u32)> {
+fn next(from: &Position, world: &World) -> Vec<(Position, u32)> {
     let mut vec: Vec<(Position, u32)> = Vec::new();
 
     fn insert(
         vec: &mut Vec<(Position, u32)>,
         point: Vec3,
         orientation: Direction,
-        world: &WorldReadLock,
+        world: &World,
         unknown: Option<u32>,
     ) {
         world
