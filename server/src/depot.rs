@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use tracing::{warn, info, trace};
-use tokio::sync::{Mutex, OwnedMutexGuard};
+use tokio::sync::{Mutex, OwnedMutexGuard, Semaphore};
 
 use crate::{blocks::Position, turtle::TurtleCommander};
 use crate::turtle::{TurtleCommand::*, TurtleCommandResponse};
@@ -13,7 +13,8 @@ use crate::turtle::{TurtleCommand::*, TurtleCommandResponse};
 /// ahead of the specified position is a chest of combustibles
 #[derive(Clone, Debug)]
 pub struct Depots {
-    depots: Arc<Mutex<Vec<Arc<Mutex<Position>>>>>
+    depots: Arc<Mutex<Vec<Arc<Mutex<Position>>>>>,
+    depot_semaphore: Arc<Semaphore>,
 }
 
 impl Depots {
@@ -27,6 +28,7 @@ impl Depots {
     }
 
     pub async fn dock(&self, turtle: TurtleCommander) -> Option<usize> {
+        let permit = self.depot_semaphore.clone().acquire_owned().await.unwrap();
         let depot = self.clone().nearest(turtle.pos().await).await?;
         trace!("depot at {depot:?}");
         turtle.goto(*depot).await?;
@@ -54,23 +56,27 @@ impl Depots {
                 }
             }
         }
+        
+        // This can fail, we don't really care (as long as it executes once)
+        turtle.execute(Backward(4)).await;
+
+        drop(depot);
+        drop(permit);
 
         // lava bucket fix
         for i in 1..=16 {
             turtle.execute(Select(i)).await;
             turtle.execute(DropDown(64)).await;
         }
-        
-        turtle.execute(Backward(1)).await;
 
-        drop(depot); // assumes that the turtle will very quickly leave
 
         Some(turtle.fuel())
     }
 
     pub async fn add(&self, pos: Position) {
         info!("new depot at {pos:?}");
-        self.depots.lock().await.push(Arc::new(Mutex::new(pos)))
+        self.depots.lock().await.push(Arc::new(Mutex::new(pos)));
+        self.depot_semaphore.add_permits(1);
     }
 
     pub fn from_vec(vec: Vec<Position>) -> Self {
@@ -78,7 +84,10 @@ impl Depots {
         for depot in vec {
             depots.push(Arc::new(Mutex::new(depot)));
         }
-        Depots { depots: Arc::new(Mutex::new(depots)) }
+        let permits = depots.len();
+        Depots { depots: Arc::new(Mutex::new(depots)),
+            depot_semaphore: Arc::new(Semaphore::new(permits))
+        }
     }
 
     pub async fn to_vec(self) -> Vec<Position> {

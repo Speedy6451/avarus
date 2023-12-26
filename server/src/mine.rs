@@ -71,7 +71,7 @@ pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec
 }
 
 async fn near_valuables(turtle: &TurtleCommander, pos: Vec3, chunk: Vec3) -> Vec<Vec3> {
-    let scan = (0..=(chunk*2).product()).map(|n| fill(chunk * 2, n) - chunk/2);
+    let scan = (0..(chunk*2).product()).map(|n| fill(chunk * 2, n) - chunk/2);
         
     let world = turtle.world().lock().await;
     scan.map(|n| world.get(n))

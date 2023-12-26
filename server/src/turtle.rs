@@ -348,10 +348,16 @@ pub(crate) async fn process_turtle_update(
     state: &LiveState,
     update: TurtleUpdate,
 ) -> Option<TurtleCommand> {
-    let mut  turtle = state
+    let mut turtle =  match state
         .turtles
-        .get(id as usize)
-        .context("nonexisting turtle").unwrap().write().await;
+        .get(id as usize) {
+            Some(turtle) => turtle.write().await,
+            None => {
+                error!("nonexisting turtle {id}");
+                return Some(TurtleCommand::Poweroff);
+            },
+    };
+    
     let world = &state.world;
 
     if turtle.pending_update {
