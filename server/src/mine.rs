@@ -58,7 +58,7 @@ pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec
     while let Some(block) = valuables.pop() {
         refuel_needed(&turtle, volume).await;
 
-        if turtle.world().get(block).await.is_none() {
+        if turtle.world().garbage(block).await {
             continue;
         }
         let near = turtle.goto_adjacent(block).await?;
@@ -74,7 +74,7 @@ async fn near_valuables(turtle: &TurtleCommander, pos: Vec3, chunk: Vec3) -> Vec
     let scan = (0..(chunk*2).product()).map(|n| fill(chunk * 2, n) - chunk/2);
         
     let world = turtle.world().lock().await;
-    scan.map(|n| world.get(n))
+    scan.map(|n| world.get(n + pos))
         .filter_map(|f| f)
         .filter(|n| n.name != "minecraft:air")
         .filter(|n| VALUABLE.iter().any(|v| n.name.contains(v)))
@@ -343,6 +343,14 @@ impl ChunkedTask {
 
         if let Some(chunk) = cancelled.pop() {
             return Some(chunk);
+        }
+
+        loop { // update head (from a save)
+            let minimum = self.confirmed.load(Ordering::SeqCst);
+            let head = self.head.load(Ordering::SeqCst);
+            if let Ok(_) = self.head.compare_exchange(head, minimum.max(head), Ordering::AcqRel, Ordering::SeqCst) {
+                break;
+            }
         }
 
         let head = self.head.fetch_add(1, Ordering::AcqRel);
