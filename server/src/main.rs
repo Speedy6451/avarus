@@ -69,15 +69,27 @@ async fn main() -> Result<(), Error> {
         .with_target("server::mine", Level::INFO)
         .with_target("server::depot", Level::TRACE);
 
-    let subscriber = tracing_subscriber::fmt::layer()
+    let log = fs::OpenOptions::new().append(true).create(true).open(SAVE.get().unwrap().join("avarus.log")).await?;
+    let (non_blocking, _guard) = tracing_appender::non_blocking(log.into_std().await);
+
+    let stdout = tracing_subscriber::fmt::layer()
         .compact()
         .with_file(false)
         .with_target(true)
         //.with_span_events(FmtSpan::ACTIVE)
+        .with_filter(filter.clone());
+
+    let log = tracing_subscriber::fmt::layer()
+        .compact()
+        .with_file(false)
+        .with_target(true)
+        //.with_span_events(FmtSpan::ACTIVE)
+        .with_writer(non_blocking)
         .with_filter(filter);
 
     let reg = tracing_subscriber::registry()
-        .with(subscriber);
+        .with(stdout)
+        .with(log);
 
     let otel = false;
     if otel {
