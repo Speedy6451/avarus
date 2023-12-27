@@ -10,17 +10,19 @@ use typetag::serde;
 use crate::{blocks::{Vec3, Position, Direction}, turtle::{TurtleCommander, TurtleCommand, TurtleCommandResponse, InventorySlot}, tasks::{Task, TaskState}, depot::Depots, mine::fill, paths::TRANSPARENT};
 
 #[tracing::instrument(skip(turtle))]
-pub async fn fell_tree(turtle: TurtleCommander, bottom: Vec3) -> Option<()> {
+pub async fn fell_tree(turtle: TurtleCommander, bottom: Vec3) -> Option<bool> {
     let mut log = bottom;
+    let mut successful = false;
     loop {
         let near = turtle.goto_adjacent(log).await?;
         if turtle.world().get(log).await.is_some_and(|b| !b.name.contains("log")) {
             break;
         }
+        successful = true;
         turtle.execute(near.dig(log)?).await;
         log += Vec3::y();
     }
-    Some(())
+    Some(successful)
 }
 
 /// Minutes before checking
@@ -47,12 +49,20 @@ impl TreeFarm {
         let trees = self.size.product();
         let spacing = Vec3::new(2, 32, 2);
         turtle.dock().await;
+        let mut successful = false;
         for tree in 0..trees {
             let index = fill(self.size, tree);
             let offset = index.component_mul(&spacing);
             trace!("tree {tree}; {offset:?}");
             let tree = self.position + offset;
-            fell_tree(turtle.clone(), tree).await?;
+            if fell_tree(turtle.clone(), tree).await? {
+                successful = true;
+            }
+        }
+
+        if !successful {
+            warn!("incomplete harvest, no trees found");
+            return Some(());
         }
 
         // sweep across floor (not upper levels) to get saplings

@@ -6,7 +6,7 @@ use tokio::task::spawn_blocking;
 use tracing::{trace, error};
 use pathfinding::prelude::astar;
 
-const LOOKUP_LIMIT: usize = 10_000_000;
+const LOOKUP_LIMIT: usize = 100_000_000;
 
 #[tracing::instrument(skip(world))]
 pub async fn route_facing(from: Position, to: Vec3, world: &SharedWorld) -> Option<Vec<Position>> {

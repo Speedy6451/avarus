@@ -62,7 +62,7 @@ async fn main() -> Result<(), Error> {
     let filter = filter::Targets::new()
         .with_default(Level::INFO)
         .with_target("server::tasks", Level::TRACE)
-        .with_target("server::turtle", Level::ERROR)
+        .with_target("server::turtle", Level::WARN)
         .with_target("server::paths", Level::ERROR)
         .with_target("server::turtle_api", Level::INFO)
         .with_target("server::fell", Level::WARN)

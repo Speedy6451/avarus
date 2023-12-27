@@ -53,7 +53,7 @@ impl Depots {
 
         // dump inventory
         for (i, _) in turtle.inventory().await.into_iter().enumerate().filter(|(_,n)| n.is_some()) {
-            turtle.execute(Select(i as u32)).await;
+            turtle.execute(Select((i+1) as u32)).await;
             turtle.execute(DropDown(64)).await;
         }
 

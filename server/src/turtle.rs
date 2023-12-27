@@ -369,7 +369,7 @@ impl TurtleCommander {
 
             attempts -= 1;
             if attempts == 0 {
-                error!("goto {pos:?} failed");
+                error!("adjacent {pos:?} failed");
                 break;
             }
 
@@ -384,9 +384,13 @@ impl TurtleCommander {
                         let command = recent.dig(next_position.pos);
                         match command {
                             Some(command) => self.execute(command).await,
-                            None => break 'route,
+                            None => {
+                                warn!("next location not diggable");
+                                break 'route
+                            },
                         };
                     } else {
+                        warn!("non destructible block on route");
                         break 'route;
                     }
                 }
@@ -399,6 +403,7 @@ impl TurtleCommander {
                         self.execute(TurtleCommand::Left).await;
                         recent = self.execute(TurtleCommand::Left).await.pos;
                     }
+                    warn!("command failed");
                     break 'route;
                 }
 
@@ -462,7 +467,7 @@ pub(crate) async fn process_turtle_update(
     let info = TurtleInfo::from_update(update, turtle.name.clone(), turtle.position.clone());
 
     if let TurtleCommandResponse::Failure = info.ret {
-        warn!("{}: command failure", turtle.name.to_str());
+        info!("{}: command failure", turtle.name.to_str());
     }
 
     if let Some(send) = turtle.callback.take() {

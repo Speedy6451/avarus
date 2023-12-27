@@ -173,7 +173,7 @@ where F: FnMut(InventorySlot) -> bool {
     for (i, slot) in turtle.inventory().await.into_iter().enumerate() {
         if let Some(item) = slot {
             if filter(item) {
-                turtle.execute(Select(i as u32)).await;
+                turtle.execute(Select((i + 1) as u32)).await;
                 turtle.execute(DropFront(64)).await;
             } else {
                 counter += 1;
