@@ -5,6 +5,21 @@ else
     endpoint = endpoint .. "48228"
 end
 
+local startpos = nil
+
+if fs.exists("/disk/pos") then
+    local posfile = fs.open("/disk/pos", "r")
+    local direction = posfile.readLine()
+    local x = tonumber(posfile.readLine())
+    local y = tonumber(posfile.readLine())
+    local z = tonumber(posfile.readLine())
+
+    startpos = {
+        pos = {x, y, z},
+        dir = direction
+    }
+end
+
 local args = {...}
 local function update()
     if args[1] == "nested" then
@@ -44,8 +59,8 @@ local function iteminfo(slot)
 end
 
 local function restartfront()
-    front = peripheral.wrap("front")
-    if not front.shutdown then
+    local front = peripheral.wrap("front")
+    if not front or not front.shutdown then
         return false
     end
     front.shutdown()
@@ -150,26 +165,29 @@ local backoff = 0;
 if not idfile then
     local fuel = turtle.getFuelLevel()
     local maxfuel = turtle.getFuelLimit()
-    if fs.exists("/disk/pos") then
-        io.input("/disk/pos")
-    else
+    if not startpos then
         io.input(io.stdin)
+        local startpos = io.input()
+        print("Direction (North, South, East, West):")
+        local direction = startpos:read("l")
+        print("X:")
+        local x = tonumber(startpos:read("l"))
+        print("Y:")
+        local y = tonumber(startpos:read("l"))
+        print("Z:")
+        local z = tonumber(startpos:read("l"))
+
+        startpos = {
+            pos = {x, y, z},
+            dir = direction
+        }
     end
-    local startpos = io.input()
-    print("Direction (North, South, East, West):")
-    local direction = startpos:read("l")
-    print("X:")
-    local x = tonumber(startpos:read("l"))
-    print("Y:")
-    local y = tonumber(startpos:read("l"))
-    print("Z:")
-    local z = tonumber(startpos:read("l"))
 
     local info = {
         fuel = fuel,
         fuellimit = maxfuel,
-        position = {x, y, z},
-        facing = direction,
+        position = startpos.pos,
+        facing = startpos.dir,
     }
     ::request::
     local turtleinfo = http.post(
@@ -193,6 +211,19 @@ if not idfile then
 else
     id = idfile.readAll()
     idfile.close()
+    
+    if startpos then
+        local rsp = http.post(
+            endpoint .. "/turtle/" .. id  .. "/setPosition",
+            textutils.serializeJSON(startpos),
+            { ["Content-Type"] = "application/json" }
+        )
+        if rsp then
+            rsp.readAll()
+        else
+            print("failed to update position") -- blink and you'll miss it
+        end
+    end
 end
 
 term.clear()

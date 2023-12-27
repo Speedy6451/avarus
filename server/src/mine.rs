@@ -76,7 +76,7 @@ pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec
 async fn devore(turtle: &TurtleCommander) {
     let turtles: Vec<u32> = turtle.inventory().await.into_iter().enumerate()
         .filter(|(_,b)| b.as_ref().is_some_and(|b| b.name.contains("turtle")))
-        .map(|(i,_)| i as u32).collect();
+        .map(|(i,_)| (i + 1) as u32).collect();
 
     if turtles.is_empty() {
         return;
@@ -90,7 +90,8 @@ async fn devore(turtle: &TurtleCommander) {
         let staging = position.pos - position.dir.unit();
 
         turtle.goto(Position::new(staging, position.dir)).await;
-        turtle.execute(Select(i as u32)).await;
+        warn!("devoring {i}");
+        turtle.execute(Select(i)).await;
         turtle.execute(Place).await;
         turtle.execute(CycleFront).await;
         loop {

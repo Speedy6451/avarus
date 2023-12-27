@@ -1,3 +1,4 @@
+use tracing::error;
 use tracing::trace;
 use tokio;
 use blocks::Vec3;
@@ -40,6 +41,7 @@ pub fn turtle_api() -> Router<SharedControl> {
     Router::new()
         .route("/new", post(create_turtle))
         .route("/:id/update", post(command))
+        .route("/:id/setPosition", post(update_position))
         .route("/client.lua", get(client))
         .route("/:id/setGoal", post(set_goal))
         .route("/:id/cancelTask", post(cancel))
@@ -55,6 +57,22 @@ pub fn turtle_api() -> Router<SharedControl> {
         .route("/updateAll", get(update_turtles))
 }
 
+pub(crate) async fn update_position(
+    Path(id): Path<u32>,
+    State(state): State<SharedControl>,
+    Json(req): Json<Position>,
+) -> &'static str {
+    let state = &mut state.read().await;
+    let turtle = state.turtles.get(id as usize);
+    if let Some(turtle) = turtle {
+        turtle.write().await.position = req;
+        info!("updated position");
+    } else {
+        error!("position update failed");
+    }
+
+    "ACK"
+}
 pub(crate) async fn register_turtle(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
