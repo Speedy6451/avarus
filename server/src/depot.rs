@@ -52,8 +52,8 @@ impl Depots {
         turtle.goto(*depot.position()).await?;
 
         // dump inventory
-        for i in 1..=16 {
-            turtle.execute(Select(i)).await;
+        for (i, _) in turtle.inventory().await.into_iter().enumerate().filter(|(_,n)| n.is_some()) {
+            turtle.execute(Select(i as u32)).await;
             turtle.execute(DropDown(64)).await;
         }
 
@@ -81,8 +81,8 @@ impl Depots {
         drop(depot);
 
         // lava bucket fix
-        for i in 1..=16 {
-            turtle.execute(Select(i)).await;
+        for (i, _) in turtle.inventory().await.into_iter().enumerate().filter(|(_,n)| n.is_some()) {
+            turtle.execute(Select(i as u32)).await;
             turtle.execute(DropDown(64)).await;
         }
 

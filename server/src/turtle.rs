@@ -154,6 +154,7 @@ pub struct TurtleCommander {
     fuel: Arc<AtomicUsize>,
     max_fuel: Arc<AtomicUsize>,
     name: Arc<OnceCell<Name>>,
+    inventory: Arc<RwLock<Option<Vec<Option<InventorySlot>>>>>,
 }
 
 impl fmt::Debug for TurtleCommander {
@@ -176,6 +177,7 @@ impl TurtleCommander {
             max_fuel: Arc::new(AtomicUsize::new(turtle.fuel_limit)),
             name: Arc::new(OnceCell::new_with(Some(turtle.name))),
             depots: state.depots.clone(),
+            inventory: Default::default(),
         })
     }
 
@@ -188,6 +190,7 @@ impl TurtleCommander {
             max_fuel: Arc::new(AtomicUsize::new(turtle.fuel_limit)),
             name: Arc::new(OnceCell::new_with(Some(turtle.name))),
             depots: state.depots.clone(),
+            inventory: Default::default(),
         }
     }
 
@@ -195,15 +198,32 @@ impl TurtleCommander {
     pub async fn execute(&self, command: TurtleCommand) -> TurtleInfo {
         let (send, recv) = oneshot::channel::<TurtleInfo>();
 
-        if let Err(_) = self.sender.to_owned().send((command,send)).await {
+        if let Err(_) = self.sender.to_owned().send((command.clone(),send)).await {
             error!("server disappeared"); // It's fine to continue, nobody 
                                           // is left to read garbage
         };
 
         let resp = recv.await.unwrap_or_else(|_| {
-            error!("server dissapering"); 
+            error!("server disappearing"); 
             TurtleInfo::from_update(TurtleUpdate { fuel: self.fuel(), ahead: "".into(), above: "".into(), below: "".into(), ret: TurtleCommandResponse::Failure }, self.name(), Position::new(Vec3::zeros(), Direction::North))
         });
+
+        // invalidate inventory when we run commands that modify it
+        // this is not safe if you make a second TurtleCommander
+        if let TurtleCommandResponse::Success = resp.ret {
+            if match command {
+                TurtleCommand::Wait(_) => false,
+                TurtleCommand::Forward(_) => false,
+                TurtleCommand::Backward(_) => false,
+                TurtleCommand::Up(_) => false,
+                TurtleCommand::Down(_) => false,
+                TurtleCommand::Left => false,
+                TurtleCommand::Right => false,
+                _ => true,
+            } {
+                *self.inventory.write().await = None;
+            }
+        }
 
         let mut pos = self.pos.write().await;
         *pos = resp.pos;
@@ -231,20 +251,42 @@ impl TurtleCommander {
         self.world.clone()
     }
 
+    pub async fn inventory(&self) -> Vec<Option<InventorySlot>> {
+        let mut inventory = self.inventory.write().await;
+
+        if inventory.is_some() {
+            return inventory.clone().unwrap();
+        }
+
+        let mut scan = Vec::new();
+
+        for i in 1..=16 {
+            match self.execute(TurtleCommand::ItemInfo(i)).await.ret {
+                TurtleCommandResponse::Item(item) => {
+                    scan.push(Some(item));
+                }
+                TurtleCommandResponse::None => {
+                    scan.push(None);
+                }
+                _ => {
+                    error!("inventory scan for #{} is going sideways", self.name().to_str());
+                    scan.push(None);
+                },
+            }
+        };
+
+        *inventory = Some(scan.clone());
+        scan
+    }
+
     #[tracing::instrument(skip(self))]
     pub async fn dock(&self) -> usize {
-        let mut wait = 1;
-        loop {
-            let res = Depots::dock(&self.depots, self.to_owned()).await;
-            if let Some(fuel) = res {
-                return fuel;
-            }
-            error!("depot lock failed");
-            // this is a poor way to do this, but I feel like select! ing on 30 different things
-            // would be harder
-            tokio::time::sleep(Duration::from_millis(wait)).await;
-            wait += 1;
-        }
+        let res = Depots::dock(&self.depots, self.to_owned()).await;
+        if let Some(fuel) = res {
+            return fuel;
+        };
+        error!("dock failed");
+        self.fuel()
     }
 
     pub async fn try_dock(&self) -> Option<usize> {

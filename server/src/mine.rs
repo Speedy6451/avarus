@@ -131,10 +131,10 @@ async fn dump(turtle: TurtleCommander) {
 async fn dump_filter<F>(turtle: TurtleCommander, mut filter: F) -> u32
 where F: FnMut(InventorySlot) -> bool {
     let mut counter = 0;
-    for i in 1..=16 {
-        if let TurtleCommandResponse::Item(item) = turtle.execute(ItemInfo(i)).await.ret {
+    for (i, slot) in turtle.inventory().await.into_iter().enumerate() {
+        if let Some(item) = slot {
             if filter(item) {
-                turtle.execute(Select(i)).await;
+                turtle.execute(Select(i as u32)).await;
                 turtle.execute(DropFront(64)).await;
             } else {
                 counter += 1;
