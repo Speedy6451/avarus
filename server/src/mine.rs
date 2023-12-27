@@ -49,6 +49,8 @@ pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec
         turtle.dock().await;
     }
 
+    devore(&turtle).await;
+
     refuel_needed(&turtle, volume).await;
 
     mine_chunk(turtle.clone(), pos, chunk).await?;
@@ -68,6 +70,42 @@ pub async fn mine_chunk_and_sweep(turtle: TurtleCommander, pos: Vec3, chunk: Vec
     }
 
     Some(())
+}
+
+/// Send mined turtles to the nearest depot
+async fn devore(turtle: &TurtleCommander) {
+    let turtles: Vec<u32> = turtle.inventory().await.into_iter().enumerate()
+        .filter(|(_,b)| b.as_ref().is_some_and(|b| b.name.contains("turtle")))
+        .map(|(i,_)| i as u32).collect();
+
+    if turtles.is_empty() {
+        return;
+    }
+
+    let depot = turtle.get_depot().await;
+
+    for i in turtles {
+        let position = depot.position();
+
+        let staging = position.pos - position.dir.unit();
+
+        turtle.goto(Position::new(staging, position.dir)).await;
+        turtle.execute(Select(i as u32)).await;
+        turtle.execute(Place).await;
+        turtle.execute(CycleFront).await;
+        loop {
+            let ret = turtle.execute(Wait(3)).await;
+            // this won't do well with dead (energy-lacking) turtles, perhaps obtaining 
+            // a new depot (lock) for every turtle is more consistent
+            //
+            // alternatively, figure out label parsing (names with spaces) 
+            // and issue a command to the child turtle
+            if !ret.ahead.contains("turtle") {
+                break;
+            }
+            warn!("devored turtle still inactive");
+        }
+    }
 }
 
 async fn near_valuables(turtle: &TurtleCommander, pos: Vec3, chunk: Vec3) -> Vec<Vec3> {
@@ -227,7 +265,7 @@ pub struct Quarry {
     size: Vec3,
     #[serde(skip_deserializing)]
     miners: Arc<AtomicUsize>,
-    pub progress: ChunkedTask,
+    progress: ChunkedTask,
 }
 
 impl Quarry {

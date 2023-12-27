@@ -3,6 +3,7 @@ use crate::blocks::Direction;
 use crate::blocks::Position;
 use crate::blocks::Vec3;
 use crate::blocks::SharedWorld;
+use crate::depot::DepotGuard;
 use crate::depot::Depots;
 use crate::paths::route_facing;
 
@@ -293,6 +294,10 @@ impl TurtleCommander {
         self.depots.dock(self.clone()).await 
     }
 
+    pub async fn get_depot(&self) -> DepotGuard {
+        self.depots.nearest(self.pos().await).await
+    }
+
     #[tracing::instrument(skip(self))]
     pub async fn goto(&self, pos: Position) -> Option<()> {
         let mut recent = self.pos().await;
@@ -512,6 +517,7 @@ pub enum TurtleCommand {
     Update,
     Poweroff,
     Refuel,
+    CycleFront,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

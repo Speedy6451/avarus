@@ -25,9 +25,9 @@ pub struct DepotGuard {
 }
 
 impl DepotGuard {
-    pub fn new(mutex: OwnedMutexGuard<Position>, semaphore: OwnedSemaphorePermit) -> Self { Self { mutex, semaphore } }
+    fn new(mutex: OwnedMutexGuard<Position>, semaphore: OwnedSemaphorePermit) -> Self { Self { mutex, semaphore } }
 
-    fn position(&self) -> &Position {
+    pub fn position(&self) -> &Position {
         &self.mutex
     }
     

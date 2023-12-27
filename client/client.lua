@@ -43,6 +43,16 @@ local function iteminfo(slot)
     return { ["Item"] = turtle.getItemDetail(slot) }
 end
 
+local function restartfront()
+    front = peripheral.wrap("front")
+    if not front.shutdown then
+        return false
+    end
+    front.shutdown()
+    front.turnOn()
+    return front.isOn()
+end
+
 local function inventoryinfo()
     return { ["Inventory"] = peripheral.wrap("front").list() }
 end
@@ -115,6 +125,7 @@ local commands = {
     ["Place"] = turtle.place,
     ["PlaceDown"] = turtle.placeDown,
     ["Update"] = update,
+    ["CycleFront"] = restartfront,
     ["Poweroff"] = os.shutdown,
     ["GetFuelLimit"] = turtle.getFuelLimit,
 };
