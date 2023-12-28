@@ -97,16 +97,20 @@ async fn devore(turtle: &TurtleCommander) {
 
         loop { // cancel the task of the turtle ahead so that it doesn't go wild in the depot
             if let TurtleCommandResponse::Name(name) = turtle.execute(NameFront).await.ret {
+                let name = name.string;
+                info!("rebirth: {name}");
                 match Name::from_str(&name) {
                     Ok(name) => {
                         let mut scheduler = turtle.scheduler().await;
                         scheduler.cancel(name).await;
+                        info!("rebirth: canceled existing");
                         scheduler.do_on(move |turtle| tokio::spawn(async move {
                             depot::dump(&turtle).await;
                             depot::refuel(&turtle).await;
                             // *teleports behind you*
                             turtle.goto(Position::new(staging - position.dir.unit(), position.dir)).await;
                         }).abort_handle(), name).unwrap();
+                        info!("rebirth: launched move");
                         break;
                     },
                     Err(_) => error!("bad turtle name: {name}"),

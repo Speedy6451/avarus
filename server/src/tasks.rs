@@ -125,14 +125,12 @@ impl Scheduler {
         where T: FnMut(TurtleCommander) -> AbortHandle
     {
         let turtle = self.turtles.iter_mut().filter(|t| t.0.name() == turtle).next()?;
-        match turtle.1 {
-            Some(_) => None,
-            None => {
-                trace!("new adhoc task on {}", turtle.0.name().to_str());
-                turtle.1 = Some(task(turtle.0.clone()));
-                Some(())
-            },
+        if let Some(task) = turtle.1.take() { // this may be unsound
+            task.abort(); 
         }
+        trace!("new adhoc task on {}", turtle.0.name().to_str());
+        turtle.1 = Some(task(turtle.0.clone()));
+        Some(())
     }
 
     pub fn task_on(&mut self, mut task: Box<dyn Task>, turtle: Name) -> Option<()> {

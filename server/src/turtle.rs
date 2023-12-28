@@ -388,7 +388,7 @@ impl TurtleCommander {
             let steps: Vec<TurtleCommand> = route.iter().map_windows(|[from,to]| from.difference(**to).unwrap()).collect();
 
             'route: for (next_position, command) in route.into_iter().skip(1).zip(steps) {
-                if world.occupied(next_position.pos).await {
+                if recent.pos != next_position.pos && world.occupied(next_position.pos).await {
                     if world.garbage(next_position.pos).await {
                         let command = recent.dig(next_position.pos);
                         match command {
@@ -399,7 +399,7 @@ impl TurtleCommander {
                             },
                         };
                     } else {
-                        warn!("non destructible block on route");
+                        warn!("non destructible block on route: {} at {:?}", world.get(next_position.pos).await.unwrap().name, next_position);
                         break 'route;
                     }
                 }
@@ -480,7 +480,7 @@ pub(crate) async fn process_turtle_update(
     }
 
     if let Some(send) = turtle.callback.take() {
-        send.send(info).unwrap();
+        send.send(info).unwrap_or_else(|_| warn!("task cancelled"));
     }
 
     if let Some(recv) = turtle.receiver.as_mut() {
@@ -544,6 +544,12 @@ pub(crate) struct InventorySlot {
     pub(crate) count: u32,
 }
 
+// bodge
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TurtleString {
+    pub string: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub(crate) enum TurtleCommandResponse {
     None,
@@ -551,7 +557,7 @@ pub(crate) enum TurtleCommandResponse {
     Failure,
     Item(InventorySlot),
     Inventory(Vec<InventorySlot>),
-    Name(String),
+    Name(TurtleString),
 }
 
 impl TurtleCommand {

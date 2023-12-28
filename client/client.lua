@@ -73,7 +73,11 @@ local function namefront()
     if not front or not front.shutdown then
         return false
     end
-    return front.getLabel()
+    return { ["Name"] = { string = front.getLabel() } }
+end
+
+local function name()
+    return { ["Name"] = os.computerLabel() }
 end
 
 local function inventoryinfo()
@@ -151,7 +155,7 @@ local commands = {
     ["CycleFront"] = restartfront,
     ["Poweroff"] = os.shutdown,
     ["GetFuelLimit"] = turtle.getFuelLimit,
-    ["Name"] = os.computerLabel,
+    ["Name"] = name,
     ["NameFront"] = namefront,
 };
 
