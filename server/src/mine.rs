@@ -378,8 +378,12 @@ struct ChunkedTask {
     max: i32,
     #[serde(skip_deserializing)]
     head: Arc<AtomicI32>, // highest active chunk
-    #[serde(skip)]
+    #[serde(skip, default = "channel")]
     canceled: Option<(Sender<i32>, Receiver<i32>)>,
+}
+
+fn channel() -> Option<(Sender<i32>, Receiver<i32>)> {
+    Some(crossbeam::channel::unbounded())
 }
 
 impl Default for ChunkedTask {
@@ -387,7 +391,7 @@ impl Default for ChunkedTask {
         Self {
             confirmed: Default::default(),
             head: Default::default(),
-            canceled: None,
+            canceled: Some(crossbeam::channel::unbounded()),
             max: 0,
         } 
     }
@@ -397,7 +401,6 @@ impl ChunkedTask {
     pub fn new(parts: i32) -> Self { 
         Self {
             max: parts,
-            canceled: Some(crossbeam::channel::unbounded()),
             ..Default::default()
         } 
     }
