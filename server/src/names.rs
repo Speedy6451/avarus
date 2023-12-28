@@ -131,4 +131,11 @@ mod tests {
         const TEST_NUM: u32 = u32::MAX - 1;
         assert_eq!(TEST_NUM, test_to_from(TEST_NUM));
     }
+
+    #[test]
+    fn many() {
+        for n in 0..1000 {
+            assert_eq!(n, test_to_from(n));
+        }
+    }
 }
