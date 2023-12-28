@@ -12,6 +12,7 @@ use blocks::{SharedWorld, Position, World, };
 use depot::Depots;
 use opentelemetry::global;
 use opentelemetry_sdk::{runtime::Tokio, trace::BatchConfig};
+use ron::ser::PrettyConfig;
 use tower_http::trace::TraceLayer;
 use tracing::{info, span, Level};
 use rstar::RTree;
@@ -154,15 +155,18 @@ async fn write_to_disk(state: &LiveState) -> anyhow::Result<()> {
     };
     let depots = state.depots.clone().to_vec().await;
 
-    let turtles = serde_json::to_string_pretty(&turtles)?;
+    let pretty = PrettyConfig::default()
+        .struct_names(true);
+
+    let turtles = ron::ser::to_string_pretty(&turtles, pretty.clone())?;
     let world = bincode::serialize(&*state.world.clone().lock().await)?;
-    let depots = serde_json::to_string_pretty(&depots)?;
-    let tasks = serde_json::to_string_pretty(tasks)?;
+    let depots = ron::ser::to_string_pretty(&depots, pretty.clone())?;
+    let tasks = ron::ser::to_string_pretty(tasks, pretty.clone())?;
 
     let path = &SAVE.get().unwrap();
-    tokio::fs::write(path.join("turtles.json"), turtles).await?;
-    tokio::fs::write(path.join("depots.json"), depots).await?;
-    tokio::fs::write(path.join("tasks.json"), tasks).await?;
+    tokio::fs::write(path.join("turtles.ron"), turtles).await?;
+    tokio::fs::write(path.join("depots.ron"), depots).await?;
+    tokio::fs::write(path.join("tasks.ron"), tasks).await?;
     tokio::fs::write(path.join("world.bin"), world).await?;
     Ok(())
 }
@@ -170,10 +174,10 @@ async fn write_to_disk(state: &LiveState) -> anyhow::Result<()> {
 async fn read_from_disk(kill: watch::Sender<bool>) -> anyhow::Result<LiveState> {
     let turtles: Vec<Turtle> = match tokio::fs::OpenOptions::new()
         .read(true)
-        .open(SAVE.get().unwrap().join("turtles.json"))
+        .open(SAVE.get().unwrap().join("turtles.ron"))
         .await
     {
-        tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
+        tokio::io::Result::Ok(file) => ron::de::from_reader(file.into_std().await)?,
         tokio::io::Result::Err(e) => match e.kind() {
             ErrorKind::NotFound => Vec::new(),
             _ => panic!(),
@@ -182,10 +186,10 @@ async fn read_from_disk(kill: watch::Sender<bool>) -> anyhow::Result<LiveState> 
 
     let depots = match tokio::fs::OpenOptions::new()
         .read(true)
-        .open(SAVE.get().unwrap().join("depots.json"))
+        .open(SAVE.get().unwrap().join("depots.ron"))
         .await
     {
-        tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
+        tokio::io::Result::Ok(file) => ron::de::from_reader(file.into_std().await)?,
         tokio::io::Result::Err(e) => match e.kind() {
             ErrorKind::NotFound => Vec::new(),
             _ => panic!(),
@@ -194,10 +198,10 @@ async fn read_from_disk(kill: watch::Sender<bool>) -> anyhow::Result<LiveState> 
 
     let scheduler = match tokio::fs::OpenOptions::new()
         .read(true)
-        .open(SAVE.get().unwrap().join("tasks.json"))
+        .open(SAVE.get().unwrap().join("tasks.ron"))
         .await
     {
-        tokio::io::Result::Ok(file) => serde_json::from_reader(file.into_std().await)?,
+        tokio::io::Result::Ok(file) => ron::de::from_reader(file.into_std().await)?,
         tokio::io::Result::Err(e) => match e.kind() {
             ErrorKind::NotFound => Default::default(),
             _ => panic!(),
