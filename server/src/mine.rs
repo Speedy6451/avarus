@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize};
 use tokio::{task::{JoinHandle, AbortHandle}, sync::RwLock};
 use typetag::serde;
 
-use crate::{blocks::{Position, Vec3, Direction}, turtle::{TurtleCommand, TurtleCommander, TurtleCommandResponse, InventorySlot}, paths::TRANSPARENT, tasks::{Task, TaskState}};
+use crate::{blocks::{Position, Vec3, Direction}, turtle::{TurtleCommand, TurtleCommander, TurtleCommandResponse, InventorySlot}, paths::TRANSPARENT, tasks::{Task, TaskState}, names::Name, depot};
 use TurtleCommand::*;
 
 /// Things to leave in the field (not worth fuel)
@@ -86,7 +86,7 @@ async fn devore(turtle: &TurtleCommander) {
     let depot = turtle.get_depot().await;
 
     for i in turtles {
-        let position = depot.position();
+        let position = depot.position().clone();
 
         let staging = position.pos - position.dir.unit();
 
@@ -94,7 +94,30 @@ async fn devore(turtle: &TurtleCommander) {
         warn!("devoring {i}");
         turtle.execute(Select(i)).await;
         turtle.execute(Place).await;
-        turtle.execute(CycleFront).await;
+
+        loop { // cancel the task of the turtle ahead so that it doesn't go wild in the depot
+            if let TurtleCommandResponse::Name(name) = turtle.execute(NameFront).await.ret {
+                match Name::from_str(&name) {
+                    Ok(name) => {
+                        let mut scheduler = turtle.scheduler().await;
+                        scheduler.cancel(name).await;
+                        scheduler.do_on(move |turtle| tokio::spawn(async move {
+                            depot::dump(&turtle).await;
+                            depot::refuel(&turtle).await;
+                            // *teleports behind you*
+                            turtle.goto(Position::new(staging - position.dir.unit(), position.dir)).await;
+                        }).abort_handle(), name).unwrap();
+                        break;
+                    },
+                    Err(_) => error!("bad turtle name: {name}"),
+                }
+            } else {
+                error!("could not get name");
+            }
+        }
+
+        turtle.execute(CycleFront).await; // boot child
+
         loop {
             let ret = turtle.execute(Wait(3)).await;
             // this won't do well with dead (energy-lacking) turtles, perhaps obtaining 
@@ -106,6 +129,7 @@ async fn devore(turtle: &TurtleCommander) {
                 break;
             }
             warn!("devored turtle still inactive");
+            turtle.execute(CycleFront).await; // rebot child
         }
     }
 }

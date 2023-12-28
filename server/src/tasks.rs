@@ -120,6 +120,33 @@ impl Scheduler {
         });
     }
 
+    // TODO: make awaiting this feasible
+    pub fn do_on<T>(&mut self, mut task: T, turtle: Name) -> Option<()> 
+        where T: FnMut(TurtleCommander) -> AbortHandle
+    {
+        let turtle = self.turtles.iter_mut().filter(|t| t.0.name() == turtle).next()?;
+        match turtle.1 {
+            Some(_) => None,
+            None => {
+                trace!("new adhoc task on {}", turtle.0.name().to_str());
+                turtle.1 = Some(task(turtle.0.clone()));
+                Some(())
+            },
+        }
+    }
+
+    pub fn task_on(&mut self, mut task: Box<dyn Task>, turtle: Name) -> Option<()> {
+        trace!("new {} task on {}", task.typetag_name(), turtle.clone().to_str());
+        let turtle = self.turtles.iter_mut().filter(|t| t.0.name() == turtle).next()?;
+        match turtle.1 {
+            Some(_) => None,
+            None => {
+                turtle.1 = Some(task.run(turtle.0.clone()));
+                Some(())
+            },
+        }
+    }
+
     pub async fn cancel(&mut self, turtle: Name) -> Option<()> {
         if let Some(task) = self.turtles.iter_mut().find(|t| t.0.name() == turtle)?.1.as_ref() {
             task.abort();

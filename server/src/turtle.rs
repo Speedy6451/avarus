@@ -12,6 +12,7 @@ use anyhow::Ok;
 
 use anyhow;
 use anyhow::Context;
+use tokio::sync::OwnedMutexGuard;
 use tracing::error;
 use tracing::trace;
 use tracing::warn;
@@ -254,6 +255,10 @@ impl TurtleCommander {
 
     pub fn world(&self) -> SharedWorld {
         self.world.clone()
+    }
+
+    pub async fn scheduler(&self) -> OwnedMutexGuard<Scheduler> {
+        self.tasks.clone().lock_owned().await
     }
 
     pub async fn inventory(&self) -> Vec<Option<InventorySlot>> {

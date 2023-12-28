@@ -51,29 +51,8 @@ impl Depots {
         trace!("depot at {:?}", depot.position());
         turtle.goto(*depot.position()).await?;
 
-        // dump inventory
-        for (i, _) in turtle.inventory().await.into_iter().enumerate().filter(|(_,n)| n.is_some()) {
-            turtle.execute(Select((i+1) as u32)).await;
-            turtle.execute(DropDown(64)).await;
-        }
-
-        // refuel
-        turtle.execute(Select(1)).await;
-        let limit = turtle.fuel_limit();
-        while turtle.fuel() + 1000 < limit {
-            turtle.execute(SuckFront(64)).await;
-            let re = turtle.execute(Refuel).await;
-            turtle.execute(DropDown(64)).await;
-            if let TurtleCommandResponse::Failure = re.ret {
-                // partial refuel, good enough
-                warn!("only received {} fuel", turtle.fuel());
-                if turtle.fuel() > 1500 {
-                    break;
-                } else {
-                    turtle.execute(Wait(15)).await;
-                }
-            }
-        }
+        dump(&turtle).await;
+        refuel(&turtle).await;
         
         // This can fail, we don't really care (as long as it executes once)
         turtle.execute(Backward(4)).await;
@@ -82,7 +61,7 @@ impl Depots {
 
         // lava bucket fix
         for (i, _) in turtle.inventory().await.into_iter().enumerate().filter(|(_,n)| n.is_some()) {
-            turtle.execute(Select(i as u32)).await;
+            turtle.execute(Select((i+1) as u32)).await;
             turtle.execute(DropDown(64)).await;
         }
 
@@ -113,5 +92,32 @@ impl Depots {
             depots.push(*depot.lock().await)
         }
         depots
+    }
+}
+
+pub async fn dump(turtle: &TurtleCommander) {
+    for (i, _) in turtle.inventory().await.into_iter().enumerate().filter(|(_,n)| n.is_some()) {
+        turtle.execute(Select((i+1) as u32)).await;
+        turtle.execute(DropDown(64)).await;
+    }
+}
+
+
+pub async fn refuel(turtle: &TurtleCommander) {
+    turtle.execute(Select(1)).await;
+    let limit = turtle.fuel_limit();
+    while turtle.fuel() + 1000 < limit {
+        turtle.execute(SuckFront(64)).await;
+        let re = turtle.execute(Refuel).await;
+        turtle.execute(DropDown(64)).await;
+        if let TurtleCommandResponse::Failure = re.ret {
+            // partial refuel, good enough
+            warn!("only received {} fuel", turtle.fuel());
+            if turtle.fuel() > 1500 {
+                break;
+            } else {
+                turtle.execute(Wait(15)).await;
+            }
+        }
     }
 }

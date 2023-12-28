@@ -68,6 +68,14 @@ local function restartfront()
     return front.isOn()
 end
 
+local function namefront()
+    local front = peripheral.wrap("front")
+    if not front or not front.shutdown then
+        return false
+    end
+    return front.getLabel()
+end
+
 local function inventoryinfo()
     return { ["Inventory"] = peripheral.wrap("front").list() }
 end
@@ -143,6 +151,8 @@ local commands = {
     ["CycleFront"] = restartfront,
     ["Poweroff"] = os.shutdown,
     ["GetFuelLimit"] = turtle.getFuelLimit,
+    ["Name"] = os.computerLabel,
+    ["NameFront"] = namefront,
 };
 
 if not ipaddr then
