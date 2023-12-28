@@ -6,6 +6,7 @@ use crate::blocks::SharedWorld;
 use crate::depot::DepotGuard;
 use crate::depot::Depots;
 use crate::paths::route_facing;
+use crate::tasks::Scheduler;
 
 use anyhow::Ok;
 
@@ -156,6 +157,7 @@ pub struct TurtleCommander {
     max_fuel: Arc<AtomicUsize>,
     name: Arc<OnceCell<Name>>,
     inventory: Arc<RwLock<Option<Vec<Option<InventorySlot>>>>>,
+    tasks: Arc<Mutex<Scheduler>>, // this feels subpar, I feel like a mpsc would do better
 }
 
 impl fmt::Debug for TurtleCommander {
@@ -179,6 +181,7 @@ impl TurtleCommander {
             name: Arc::new(OnceCell::new_with(Some(turtle.name))),
             depots: state.depots.clone(),
             inventory: Default::default(),
+            tasks: state.tasks.clone(),
         })
     }
 
@@ -192,6 +195,7 @@ impl TurtleCommander {
             name: Arc::new(OnceCell::new_with(Some(turtle.name))),
             depots: state.depots.clone(),
             inventory: Default::default(),
+            tasks: state.tasks.clone(),
         }
     }
 
@@ -523,6 +527,10 @@ pub enum TurtleCommand {
     Poweroff,
     Refuel,
     CycleFront,
+    /// Name of the computer in front of the one commanded
+    NameFront,
+    /// Name of the current computer
+    Name,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -538,6 +546,7 @@ pub(crate) enum TurtleCommandResponse {
     Failure,
     Item(InventorySlot),
     Inventory(Vec<InventorySlot>),
+    Name(String),
 }
 
 impl TurtleCommand {

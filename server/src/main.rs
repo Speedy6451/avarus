@@ -161,7 +161,7 @@ async fn write_to_disk(state: &LiveState) -> anyhow::Result<()> {
     let turtles = ron::ser::to_string_pretty(&turtles, pretty.clone())?;
     let world = bincode::serialize(&*state.world.clone().lock().await)?;
     let depots = ron::ser::to_string_pretty(&depots, pretty.clone())?;
-    let tasks = ron::ser::to_string_pretty(tasks, pretty.clone())?;
+    let tasks = ron::ser::to_string_pretty(&*tasks.lock().await, pretty.clone())?;
 
     let path = &SAVE.get().unwrap();
     tokio::fs::write(path.join("turtles.ron"), turtles).await?;
@@ -226,7 +226,8 @@ async fn read_from_disk(kill: watch::Sender<bool>) -> anyhow::Result<LiveState> 
     };
     let depots = Depots::from_vec(depots);
     
-    Ok(LiveState { turtles: bound_turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: scheduler, 
+    Ok(LiveState { turtles: bound_turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(),
+        tasks: Arc::new(Mutex::new(scheduler)), 
         world: SharedWorld::from_world(world),
         depots,
         started: Instant::now(),
@@ -244,7 +245,7 @@ struct SavedState {
 
 struct LiveState {
     turtles: Vec<Arc<RwLock<turtle::Turtle>>>,
-    tasks: Scheduler,
+    tasks: Arc<Mutex<Scheduler>>,
     world: blocks::SharedWorld,
     depots: Depots,
     started: Instant,
@@ -260,7 +261,7 @@ impl LiveState {
         };
         let depots = Depots::from_vec(save.depots);
             
-        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: scheduler, world: SharedWorld::from_world(save.world),
+        Self { turtles: turtles.into_iter().map(|t| Arc::new(RwLock::new(t))).collect(), tasks: Arc::new(Mutex::new(scheduler)), world: SharedWorld::from_world(save.world),
             depots,
             started: Instant::now(),
             kill:sender,

@@ -79,7 +79,7 @@ pub(crate) async fn register_turtle(
 ) -> &'static str {
     let state = &mut state.write().await;
     let commander = state.get_turtle(id).await.unwrap().clone();
-    state.tasks.add_turtle(&commander);
+    state.tasks.lock().await.add_turtle(&commander);
     info!("registered turtle: {id}");
 
     "ACK"
@@ -94,7 +94,7 @@ pub(crate) async fn create_turtle(
     let (send, receive) = mpsc::channel(1);
     let turtle = turtle::Turtle::with_channel(id, Position::new(req.position, req.facing), req.fuel, req.fuellimit, send,receive);
     let commander = TurtleCommander::with_turtle(&turtle, state);
-    state.tasks.add_turtle(&commander);
+    state.tasks.lock().await.add_turtle(&commander);
     state.turtles.push(
         Arc::new(RwLock::new(
             turtle
@@ -144,7 +144,8 @@ pub(crate) async fn dig(
     State(state): State<SharedControl>,
     Json(req): Json<Vec3>,
 ) -> &'static str {
-    let schedule = &mut state.write().await.tasks;
+    let state = state.read().await;
+    let mut schedule = state.tasks.lock().await;
     let size = Vec3::new(16,16,16);
     schedule.add_task(Box::new(Quarry::new(req,req+size)));
 
@@ -164,7 +165,8 @@ pub(crate) async fn new_depot(
 pub(crate) async fn poll(
     State(state): State<SharedControl>,
 ) -> &'static str {
-    let schedule = &mut state.write().await.tasks;
+    let state = state.read().await;
+    let mut schedule = state.tasks.lock().await;
     schedule.poll().await;
 
     "ACK"
@@ -174,9 +176,10 @@ pub(crate) async fn shutdown(
     State(state): State<SharedControl>,
 ) -> &'static str {
     let signal = {
-        let mut state = state.write().await;
-        let signal = state.tasks.shutdown();
-        state.tasks.poll().await;
+        let state = state.read().await;
+        let scheduler = &mut state.tasks.lock().await;
+        let signal = scheduler.shutdown();
+        scheduler.poll().await;
         signal
     };
 
@@ -196,7 +199,7 @@ pub(crate) async fn fell(
     Json(req): Json<Vec3>,
 ) -> &'static str {
     let schedule = &mut state.write().await.tasks;
-    schedule.add_task(Box::new(TreeFarm::new(req)));
+    schedule.lock().await.add_task(Box::new(TreeFarm::new(req)));
 
     "ACK"
 }
@@ -218,7 +221,7 @@ pub(crate) async fn cancel(
     Path(id): Path<u32>,
     State(state): State<SharedControl>,
 ) -> &'static str {
-    state.write().await.tasks.cancel(Name::from_num(id)).await;
+    state.read().await.tasks.lock().await.cancel(Name::from_num(id)).await;
 
     "ACK"
 }
@@ -269,7 +272,8 @@ pub(crate) async fn command(
             tokio::spawn(async move {
                 let state = &state.clone();
                 if Instant::elapsed(&state.clone().read().await.started).as_secs_f64() > STARTUP_ALLOWANCE {
-                    let schedule = &mut state.write().await.tasks;
+                    let state = state.read().await;
+                    let mut schedule = state.tasks.lock().await;
                     trace!("idle, polling");
                     schedule.add_turtle(&turtle_commander.unwrap());
                     schedule.poll().await;
