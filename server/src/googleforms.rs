@@ -104,7 +104,16 @@ async fn omni_inner(state: SharedControl, req: GoogleOmniForm) -> anyhow::Result
     let mut schedule = state.tasks.lock().await;
     let position = { Vec3::new(req.x.parse()?,req.y.parse()?,req.z.parse()?) };
     match req.operation {
-        GoogleOmniFormMode::Schematic => Err(anyhow!("unimplemented"))?,
+        GoogleOmniFormMode::Schematic => {
+            let schematic = req.schematic.context("no schematic uploaded")?.get(0).context("zero schematics")?.to_owned();
+            let schematic = reqwest::get(format!("https://docs.google.com/uc?export=download&id={schematic}")).await?;
+
+            let schematic = rustmatica::Litematic::from_bytes(&schematic.bytes().await?)?;
+
+            info!("schematic \"{}\" downloaded", &schematic.name);
+            info!("{} blocks", schematic.total_blocks());
+            info!("{} regions", schematic.regions.len());
+        },
         GoogleOmniFormMode::RemoveVein => {
             let block = req.block.context("missing block name")?;
             info!("new remove {block} command from the internet at {position}");
