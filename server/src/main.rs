@@ -39,6 +39,7 @@ mod turtle;
 mod turtle_api;
 mod tasks;
 mod depot;
+mod googleforms;
 
 static PORT: OnceCell<u16> = OnceCell::const_new();
 static SAVE: OnceCell<path::PathBuf> = OnceCell::const_new();
@@ -66,6 +67,7 @@ async fn main() -> Result<(), Error> {
         .with_target("server::turtle", Level::WARN)
         .with_target("server::paths", Level::ERROR)
         .with_target("server::turtle_api", Level::INFO)
+        .with_target("server::googleforms", Level::TRACE)
         .with_target("server::fell", Level::WARN)
         .with_target("server::mine", Level::INFO)
         .with_target("server::depot", Level::TRACE);
@@ -124,6 +126,7 @@ async fn main() -> Result<(), Error> {
         //.route("/turtle/:id/placeUp", get(place_up))
         .route("/flush", get(flush))
         .nest("/turtle", turtle_api::turtle_api())
+        .nest("/forms", googleforms::forms_api())
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 

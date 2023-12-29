@@ -554,7 +554,7 @@ mod tests {
 }
 
 #[derive(Serialize, Deserialize,Clone)]
-struct Remove {
+pub struct Remove {
     start: Vec3,
     block: String,
     #[serde(skip_deserializing)]
@@ -565,7 +565,7 @@ struct Remove {
 }
 
 impl Remove {
-    fn new(start: Vec3, block: String) -> 
+    pub fn new(start: Vec3, block: String) -> 
         Self { 
             Self { 
                 start, block, miners:Default::default(), done: Default::default(), pending: Default::default(),
