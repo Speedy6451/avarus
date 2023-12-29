@@ -33,6 +33,7 @@ mod blocks;
 mod names;
 mod mine;
 mod fell;
+mod construct;
 mod paths;
 mod safe_kill;
 mod turtle;
@@ -70,6 +71,7 @@ async fn main() -> Result<(), Error> {
         .with_target("server::googleforms", Level::TRACE)
         .with_target("server::fell", Level::WARN)
         .with_target("server::mine", Level::INFO)
+        .with_target("server::construct", Level::TRACE)
         .with_target("server::depot", Level::TRACE);
 
     let log = fs::OpenOptions::new().append(true).create(true).open(SAVE.get().unwrap().join("avarus.log")).await?;

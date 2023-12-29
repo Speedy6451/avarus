@@ -7,7 +7,7 @@ use tokio::task::AbortHandle;
 use tracing::{info, error};
 use typetag::serde;
 
-use crate::{SharedControl, mine::{Remove, ChunkedTask, Quarry}, blocks::{Vec3, Direction, Position}, tasks::{TaskState, Task}, turtle::TurtleCommander};
+use crate::{SharedControl, mine::{Remove, ChunkedTask, Quarry}, blocks::{Vec3, Direction, Position}, tasks::{TaskState, Task}, turtle::TurtleCommander, construct::BuildSimple};
 
 pub fn forms_api() -> Router<SharedControl> {
     Router::new()
@@ -110,9 +110,18 @@ async fn omni_inner(state: SharedControl, req: GoogleOmniForm) -> anyhow::Result
 
             let schematic = rustmatica::Litematic::from_bytes(&schematic.bytes().await?)?;
 
+            let region = schematic.regions.get(0).context("no regions")?;
+
             info!("schematic \"{}\" downloaded", &schematic.name);
             info!("{} blocks", schematic.total_blocks());
             info!("{} regions", schematic.regions.len());
+
+            let input = Position::new(
+                Vec3::new(53,73,77),
+                Direction::West,
+            );
+
+            schedule.add_task(Box::new(BuildSimple::new(position, region, input)));
         },
         GoogleOmniFormMode::RemoveVein => {
             let block = req.block.context("missing block name")?;

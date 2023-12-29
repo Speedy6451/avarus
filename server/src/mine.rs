@@ -466,7 +466,7 @@ impl ChunkedTask {
 }
 
 #[derive(Clone)]
-struct ChunkedTaskGuard {
+pub struct ChunkedTaskGuard {
     parent: ChunkedTask,
     chunk: i32,
     complete: bool,
@@ -481,16 +481,16 @@ impl ChunkedTaskGuard {
         }
     }
 
-    fn id(&self) -> i32 {
+    pub fn id(&self) -> i32 {
         self.chunk
     }
     
-    fn finish(mut self) {
+    pub fn finish(mut self) {
         self.parent.mark_done(self.chunk);
         self.complete = true;
     }
 
-    fn cancel(self) {
+    pub fn cancel(self) {
         drop(self) // nop
     }
 }
