@@ -584,6 +584,8 @@ impl Remove {
             next.push(self.start);
         }
 
+        let mut inventory_check = 64;
+
         while let Some(pos) = next.pop() {
             // skip if seen and unwanted
             if !self.wanted(&world, pos).await.unwrap_or(true) {
@@ -610,9 +612,21 @@ impl Remove {
 
             // these will be pruned in the next iterations
             next.append(&mut near);
+
+            inventory_check -= 1;
+            if inventory_check == 0 {
+                inventory_check = 64;
+
+                let inventory = turtle.inventory().await;
+                let full = inventory.iter().filter(|s| s.is_some()).count();
+
+                if full > 14 {
+                    turtle.dock().await;
+                }
+            }
         }
 
-        Some(false)
+        Some(true)
     }
 
     async fn wanted(&self, world: &SharedWorld, pos: Vec3) -> Option<bool> {
