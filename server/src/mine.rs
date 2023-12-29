@@ -377,7 +377,7 @@ impl Task for Quarry {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct ChunkedTask {
+pub struct ChunkedTask {
     confirmed: Arc<AtomicI32>,
     max: i32,
     #[serde(skip_deserializing)]
