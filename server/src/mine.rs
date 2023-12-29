@@ -1,12 +1,12 @@
-use std::{sync::{Arc, atomic::{AtomicUsize, Ordering, AtomicI32}}, ops::Deref};
+use std::{sync::{Arc, atomic::{AtomicUsize, Ordering, AtomicI32, AtomicBool} }, ops::Deref};
 
 use crossbeam::channel::{Sender, Receiver};
-use tracing::{info, warn, error, instrument};
+use tracing::{info, warn, error, instrument, trace};
 use serde::{Serialize, Deserialize};
-use tokio::{task::{JoinHandle, AbortHandle}, sync::RwLock};
+use tokio::{task::{JoinHandle, AbortHandle}, sync::{RwLock, Mutex}};
 use typetag::serde;
 
-use crate::{blocks::{Position, Vec3, Direction}, turtle::{TurtleCommand, TurtleCommander, TurtleCommandResponse, InventorySlot}, paths::TRANSPARENT, tasks::{Task, TaskState}, names::Name, depot};
+use crate::{blocks::{Position, Vec3, Direction, SharedWorld}, turtle::{TurtleCommand, TurtleCommander, TurtleCommandResponse, InventorySlot}, paths::TRANSPARENT, tasks::{Task, TaskState}, names::Name, depot};
 use TurtleCommand::*;
 
 /// Things to leave in the field (not worth fuel)
@@ -550,5 +550,106 @@ mod tests {
         e.finish();
         assert!(tracker.done());
         assert!(tracker.allocated());
+    }
+}
+
+#[derive(Serialize, Deserialize,Clone)]
+struct Remove {
+    start: Vec3,
+    block: String,
+    #[serde(skip_deserializing)]
+    miners: Arc<AtomicUsize>,
+    done: Arc<AtomicBool>,
+    #[serde(skip)] // TODO: not this
+    pending: Arc<Mutex<Vec<Vec3>>>,
+}
+
+impl Remove {
+    fn new(start: Vec3, block: String) -> 
+        Self { 
+            Self { 
+                start, block, miners:Default::default(), done: Default::default(), pending: Default::default(),
+            } 
+        }
+
+
+    /// Remove all blocks matching the predicate around the starting position
+    ///
+    /// MS paint bucket tool but in Minecraft with air
+    async fn remove(&self, turtle: TurtleCommander) -> Option<bool> {
+        let mut next = self.pending.lock().await;
+        let world = turtle.world();
+
+        if self.wanted(&world, self.start).await.unwrap_or(true) {
+            next.push(self.start);
+        }
+
+        while let Some(pos) = next.pop() {
+            // skip if seen and unwanted
+            if !self.wanted(&world, pos).await.unwrap_or(true) {
+                continue; 
+            }
+            let close = turtle.goto_adjacent(pos).await?; // look and see
+            // skip if unseen or unwanted
+            if !self.wanted(&world, pos).await.is_some_and(|v| v) {
+                continue; 
+            }
+
+            turtle.execute(close.dig(pos)?).await;
+
+            let cube = vec![
+                Vec3::x(),
+                -Vec3::x(),
+                Vec3::y(),
+                -Vec3::y(),
+                Vec3::z(),
+                -Vec3::z(),
+            ];
+
+            let mut near: Vec<Vec3> = cube.into_iter().map(|n| n + pos).collect();
+
+            // these will be pruned in the next iterations
+            next.append(&mut near);
+        }
+
+        Some(false)
+    }
+
+    async fn wanted(&self, world: &SharedWorld, pos: Vec3) -> Option<bool> {
+        Some(world.get(pos).await?.name.contains(&self.block))
+    }
+}
+
+#[serde]
+impl Task for Remove {
+    fn run(&mut self,turtle:TurtleCommander) -> AbortHandle {
+        self.miners.fetch_add(1, Ordering::SeqCst);
+
+        let owned = self.clone();
+
+        tokio::spawn(async move {
+            match owned.remove(turtle).await {
+                Some(true) => {
+                    owned.done.store(true, Ordering::SeqCst);
+                },
+                Some(false) => {
+                    trace!("incomplete");
+                },
+                None => {
+                    error!("removal failed");
+                },
+            };
+            owned.miners.fetch_sub(1, Ordering::SeqCst);
+        }).abort_handle()
+    }
+
+    fn poll(&mut self) -> TaskState {
+        if self.done.load(Ordering::SeqCst) {
+            return TaskState::Complete;
+        }
+        if self.miners.load(Ordering::SeqCst) < 1 {
+            return TaskState::Ready(Position::new(self.start, Direction::North));
+        }
+        TaskState::Waiting
     }
 }
