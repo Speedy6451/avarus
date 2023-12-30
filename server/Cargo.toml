@@ -45,3 +45,6 @@ tracing-appender = "0.2.3"
 ron = "0.8.1"
 crossbeam = "0.8.3"
 reqwest = "0.11.23"
+swarmbot-interfaces = { git = "https://github.com/SwarmBotMC/SwarmBot" }
+hematite-nbt = "0.5.2"
+more-asserts = "0.3.1"

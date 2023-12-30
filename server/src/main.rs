@@ -41,6 +41,7 @@ mod turtle_api;
 mod tasks;
 mod depot;
 mod googleforms;
+mod vendored;
 
 static PORT: OnceCell<u16> = OnceCell::const_new();
 static SAVE: OnceCell<path::PathBuf> = OnceCell::const_new();
