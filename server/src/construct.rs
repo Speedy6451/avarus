@@ -13,24 +13,20 @@ fn schematic2world(region: &Schematic) -> anyhow::Result<World> {
     let mut world = World::new();
 
     let min = region.origin().context("bad schematic")?;
-    let area = Vec3::new(
-        region.width() as i32,
-        region.height() as i32,
-        region.length() as i32,
-    );
-    info!("area {}", area);
 
     for (position, block) in region.blocks() {
-        println!("{:#?}, {}", block, position);
 
         let name = match block {
                 BlockState::AIR => None,
+                BlockState(20) => None, // Glass
+                BlockState(102) => None, // Glass pane
+                BlockState(95) => None, // Stained glass
+                BlockState(160) => None, // Stained glass pane
                 // who cares
                 _ => Some("terrestria:hemlock_planks")
             }.map(|s| s.to_string());
 
         if let Some(name) = name {
-            println!("{:#?}, {:?}", name, block);
             let block = Block {
                 name,
                 pos: position - min,
@@ -97,6 +93,15 @@ impl BuildSimple {
 
     async fn build_layer(&self, turtle: TurtleCommander, layer: i32) -> Option<()> {
         let layer_size = Vec3::new(self.size.x, 1, self.size.z);
+
+        // assume the layer is empty for better pathfinding
+        let mut world = turtle.world().lock_mut().await;
+        for point in (0..layer_size.product()).map(|n| fill(layer_size, n)) {
+            if let None = world.get(point) {
+                world.set(Block { name: "minecraft:air".into(), pos: point })
+            }
+        }
+        drop(world);
 
         for point in (0..layer_size.product())
             .map(|n| fill(layer_size, n)) {

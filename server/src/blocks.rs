@@ -5,7 +5,7 @@ use anyhow::{Ok, anyhow};
 use nalgebra::Vector3;
 use rstar::{PointDistance, RTree, RTreeObject, AABB, Envelope};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{RwLock, OwnedRwLockReadGuard};
+use tokio::sync::{RwLock, OwnedRwLockReadGuard, OwnedRwLockWriteGuard};
 
 use crate::{turtle::TurtleCommand, paths::{self, TRANSPARENT}};
 
@@ -97,6 +97,10 @@ impl SharedWorld {
 
     pub async fn lock(self) -> OwnedRwLockReadGuard<World> {
         self.state.read_owned().await
+    }
+
+    pub async fn lock_mut(self) -> OwnedRwLockWriteGuard<World> {
+        self.state.write_owned().await
     }
 }
 

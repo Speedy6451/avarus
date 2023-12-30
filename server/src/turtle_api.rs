@@ -296,7 +296,7 @@ pub(crate) async fn build(
 ) -> &'static str {
     let state = state.read().await;
     let mut schedule = state.tasks.lock().await;
-    let schematic = Schematic::load(&mut fs::File::open("thethinkman.schematic").await.unwrap().into_std().await).unwrap();
+    let schematic = Schematic::load(&mut fs::File::open("schematics/greek-athelete1.schematic").await.unwrap().into_std().await).unwrap();
 
     let input = Position::new(
         Vec3::new(53,73,77),
