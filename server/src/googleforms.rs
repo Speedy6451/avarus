@@ -1,6 +1,6 @@
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
-use anyhow::{Ok, Context, anyhow};
+use anyhow::{Ok, Context, anyhow, Result};
 use axum::{Router, routing::post, extract::State, Json};
 use serde::{Deserialize, Serialize};
 use tokio::task::AbortHandle;
@@ -110,7 +110,6 @@ async fn omni_inner(state: SharedControl, req: GoogleOmniForm) -> anyhow::Result
 
             let schematic = rustmatica::Litematic::from_bytes(&schematic.bytes().await?)?;
 
-            let region = schematic.regions.get(0).context("no regions")?;
 
             info!("schematic \"{}\" downloaded", &schematic.name);
             info!("{} blocks", schematic.total_blocks());
@@ -121,7 +120,13 @@ async fn omni_inner(state: SharedControl, req: GoogleOmniForm) -> anyhow::Result
                 Direction::West,
             );
 
-            schedule.add_task(Box::new(BuildSimple::new(position, region, input)));
+            // this converts to my memory representation so it can take a while
+            let builder = tokio::task::spawn_blocking(move || {
+                let region = schematic.regions.get(0).context("no regions");
+                Ok(BuildSimple::new(position, region?, input))
+            }).await??;
+
+            schedule.add_task(Box::new(builder));
         },
         GoogleOmniFormMode::RemoveVein => {
             let block = req.block.context("missing block name")?;

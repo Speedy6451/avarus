@@ -3,6 +3,8 @@ use tracing::trace;
 use tokio;
 use blocks::Vec3;
 use tokio::time::Instant;
+use crate::blocks::Direction;
+use crate::construct::BuildSimple;
 use crate::fell::TreeFarm;
 use crate::mine::Mine;
 use crate::mine::Quarry;
@@ -51,6 +53,7 @@ pub fn turtle_api() -> Router<SharedControl> {
         .route("/:id/register", get(register_turtle))
         .route("/createTreeFarm", post(fell))
         .route("/createMine", post(dig))
+        .route("/build", post(build))
         .route("/registerDepot", post(new_depot))
         .route("/pollScheduler", get(poll))
         .route("/shutdown", get(shutdown)) // probably tramples the rfc
@@ -284,6 +287,35 @@ pub(crate) async fn command(
     };
 
     Json(command)
+}
+
+pub(crate) async fn build(
+    State(state): State<SharedControl>,
+    Json(req): Json<Vec3>,
+) -> &'static str {
+    let state = state.read().await;
+    let mut schedule = state.tasks.lock().await;
+    let schematic = rustmatica::Litematic::read_file("Tree.litematic").unwrap();
+
+
+    info!("schematic \"{}\" downloaded", &schematic.name);
+    info!("{} blocks", schematic.total_blocks());
+    info!("{} regions", schematic.regions.len());
+
+    let input = Position::new(
+        Vec3::new(53,73,77),
+        Direction::West,
+    );
+
+    // this converts to my memory representation so it can take a while
+    let builder = tokio::task::spawn_blocking(move || {
+        let region = schematic.regions.get(0);
+        BuildSimple::new(req, region.unwrap(), input)
+    }).await.unwrap();
+
+    schedule.add_task(Box::new(builder));
+
+    "ACK"
 }
 
 pub(crate) async fn client() -> String {
