@@ -1,8 +1,10 @@
 use std::io::Read;
 
 use anyhow::Context;
-use swarmbot_interfaces::types::{BlockLocation, BlockState};
+use swarmbot_interfaces::types::BlockState;
 use serde::{Deserialize, Serialize};
+
+use crate::blocks::Vec3;
 
 /// The `WorldEdit` schematic format
 /// <https://minecraft.fandom.com/wiki/Schematic_file_format>
@@ -45,17 +47,17 @@ impl Schematic {
     }
 
     #[allow(unused)]
-    pub fn origin(&self) -> Option<BlockLocation> {
+    pub fn origin(&self) -> Option<Vec3> {
         match (self.w_e_origin_x, self.w_e_origin_y, self.w_e_origin_z) {
-            (Some(x), Some(y), Some(z)) => Some(BlockLocation::new(x, y as i16, z)),
+            (Some(x), Some(y), Some(z)) => Some(Vec3::new(x, y, z)),
             _ => None,
         }
     }
 
     #[allow(unused)]
-    pub fn offset(&self) -> Option<BlockLocation> {
+    pub fn offset(&self) -> Option<Vec3> {
         match (self.w_e_offset_x, self.w_e_offset_y, self.w_e_offset_z) {
-            (Some(x), Some(y), Some(z)) => Some(BlockLocation::new(x, y as i16, z)),
+            (Some(x), Some(y), Some(z)) => Some(Vec3::new(x, y, z)),
             _ => None,
         }
     }
@@ -76,7 +78,7 @@ impl Schematic {
     }
 
     #[allow(unused, clippy::unwrap_used, clippy::indexing_slicing)]
-    pub fn blocks(&self) -> impl Iterator<Item = (BlockLocation, BlockState)> + '_ {
+    pub fn blocks(&self) -> impl Iterator<Item = (Vec3, BlockState)> + '_ {
         let origin = self.origin().unwrap_or_default();
 
         (0..self.volume()).map(move |idx| {
@@ -87,7 +89,7 @@ impl Schematic {
 
             let y = leftover / self.length();
 
-            let location = BlockLocation::new(x as i32, y as i16, z as i32) + origin;
+            let location = Vec3::new(x as i32, y as i32, z as i32) + origin;
 
             let id = self.blocks[idx as usize].abs_diff(0);
             let data = self.data[idx as usize].abs_diff(0);
@@ -102,8 +104,9 @@ impl Schematic {
 mod tests {
     use std::{collections::HashMap, fs::OpenOptions};
 
-    use swarmbot_interfaces::types::BlockLocation;
     use more_asserts::*;
+
+    use crate::blocks::Vec3;
 
     use super::Schematic;
 
@@ -126,14 +129,14 @@ mod tests {
             assert_lt!(loc.x, origin.x + schematic.width as i32);
 
             assert_ge!(loc.y, origin.y);
-            assert_lt!(loc.y, origin.y + schematic.height);
+            assert_lt!(loc.y, origin.y + schematic.height as i32);
 
             assert_ge!(loc.z, origin.z);
             assert_lt!(loc.z, origin.z + schematic.length as i32);
             map.insert(loc, state);
         }
 
-        let stained_glass = map[&BlockLocation::new(-162, 81, -357)];
+        let stained_glass = map[&Vec3::new(-162, 81, -357)];
         assert_eq!(stained_glass.id(), 95);
     }
 }

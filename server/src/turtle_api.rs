@@ -12,6 +12,7 @@ use crate::turtle::IDLE_TIME;
 use crate::turtle::TurtleCommandResponse;
 use crate::turtle::TurtleCommander;
 use crate::turtle::TurtleInfo;
+use crate::vendored::schematic::Schematic;
 use axum::extract::Path;
 use crate::turtle::TurtleCommand;
 use crate::names::Name;
@@ -295,12 +296,7 @@ pub(crate) async fn build(
 ) -> &'static str {
     let state = state.read().await;
     let mut schedule = state.tasks.lock().await;
-    let schematic = rustmatica::Litematic::read_file("Tree.litematic").unwrap();
-
-
-    info!("schematic \"{}\" downloaded", &schematic.name);
-    info!("{} blocks", schematic.total_blocks());
-    info!("{} regions", schematic.regions.len());
+    let schematic = Schematic::load(&mut fs::File::open("thethinkman.schematic").await.unwrap().into_std().await).unwrap();
 
     let input = Position::new(
         Vec3::new(53,73,77),
@@ -309,8 +305,7 @@ pub(crate) async fn build(
 
     // this converts to my memory representation so it can take a while
     let builder = tokio::task::spawn_blocking(move || {
-        let region = schematic.regions.get(0);
-        BuildSimple::new(req, region.unwrap(), input)
+        BuildSimple::new(req, &schematic, input)
     }).await.unwrap();
 
     schedule.add_task(Box::new(builder));

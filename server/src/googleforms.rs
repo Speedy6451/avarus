@@ -2,12 +2,13 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 use anyhow::{Ok, Context, anyhow, Result};
 use axum::{Router, routing::post, extract::State, Json};
+use hyper::body::Buf;
 use serde::{Deserialize, Serialize};
 use tokio::task::AbortHandle;
 use tracing::{info, error};
 use typetag::serde;
 
-use crate::{SharedControl, mine::{Remove, ChunkedTask, Quarry}, blocks::{Vec3, Direction, Position}, tasks::{TaskState, Task}, turtle::TurtleCommander, construct::BuildSimple};
+use crate::{SharedControl, mine::{Remove, ChunkedTask, Quarry}, blocks::{Vec3, Direction, Position}, tasks::{TaskState, Task}, turtle::TurtleCommander, construct::BuildSimple, vendored::schematic::Schematic};
 
 pub fn forms_api() -> Router<SharedControl> {
     Router::new()
@@ -106,14 +107,7 @@ async fn omni_inner(state: SharedControl, req: GoogleOmniForm) -> anyhow::Result
     match req.operation {
         GoogleOmniFormMode::Schematic => {
             let schematic = req.schematic.context("no schematic uploaded")?.get(0).context("zero schematics")?.to_owned();
-            let schematic = reqwest::get(format!("https://docs.google.com/uc?export=download&id={schematic}")).await?;
-
-            let schematic = rustmatica::Litematic::from_bytes(&schematic.bytes().await?)?;
-
-
-            info!("schematic \"{}\" downloaded", &schematic.name);
-            info!("{} blocks", schematic.total_blocks());
-            info!("{} regions", schematic.regions.len());
+            let schematic = reqwest::get(format!("https://docs.google.com/uc?export=download&id={schematic}")).await?.bytes().await?;
 
             let input = Position::new(
                 Vec3::new(53,73,77),
@@ -122,9 +116,9 @@ async fn omni_inner(state: SharedControl, req: GoogleOmniForm) -> anyhow::Result
 
             // this converts to my memory representation so it can take a while
             let builder = tokio::task::spawn_blocking(move || {
-                let region = schematic.regions.get(0).context("no regions");
-                Ok(BuildSimple::new(position, region?, input))
-            }).await??;
+                let schematic = Schematic::load(&mut schematic.reader()).unwrap();
+                BuildSimple::new(position, &schematic, input)
+            }).await.unwrap();
 
             schedule.add_task(Box::new(builder));
         },

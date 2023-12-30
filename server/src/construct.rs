@@ -1,41 +1,30 @@
 use std::{sync::{atomic::{AtomicBool, AtomicUsize, Ordering, AtomicI32}, Arc}, borrow::Cow};
 
-use rustmatica::{Region, Litematic, BlockState, util::UVec3};
+use anyhow::{Context, Ok};
 use serde::{Serialize, Deserialize};
+use swarmbot_interfaces::types::BlockState;
 use tokio::task::AbortHandle;
 use tracing::{error, info, trace};
 use typetag::serde;
 
-use crate::{blocks::{Vec3, Position, World, Block, SharedWorld, Direction}, mine::{ChunkedTask, fill}, turtle::{TurtleCommander, TurtleCommandResponse, TurtleCommand}, tasks::{Task, TaskState}};
+use crate::{blocks::{Vec3, Position, World, Block, SharedWorld, Direction}, mine::{ChunkedTask, fill}, turtle::{TurtleCommander, TurtleCommandResponse, TurtleCommand}, tasks::{Task, TaskState}, vendored::schematic::Schematic};
 
-fn region2world<'a>(region: &'a Region) -> World {
+fn schematic2world(region: &Schematic) -> anyhow::Result<World> {
     let mut world = World::new();
-    let min = Vec3::new(
-        region.min_x() as i32,
-        region.min_y() as i32,
-        region.min_z() as i32,
-    );
 
-    let max = Vec3::new(
-        region.max_x() as i32 + 1,
-        region.max_y() as i32 + 1,
-        region.max_z() as i32 + 1,
+    let min = region.origin().context("bad schematic")?;
+    let area = Vec3::new(
+        region.width() as i32,
+        region.height() as i32,
+        region.length() as i32,
     );
-
-    let area = max - min;
     info!("area {}", area);
 
-    // region.blocks() is broken (or how I was using it), which cost me quite some time TODO: make a pr
-
-    for position in (0..area.product()).map(|n| fill(area, n)) {
-        let block = UVec3::new(position.x as usize, position.y as usize, position.z as usize);
-        let block = region.get_block(block);
-
+    for (position, block) in region.blocks() {
         println!("{:#?}, {}", block, position);
 
         let name = match block {
-                BlockState::Air => None,
-                BlockState::Stone => Some("minecraft:stone"),
+                BlockState::AIR => None,
                 // who cares
                 _ => Some("terrestria:hemlock_planks")
             }.map(|s| s.to_string());
@@ -50,7 +39,7 @@ fn region2world<'a>(region: &'a Region) -> World {
         }
     }
 
-    world
+    Ok(world)
 }
 
 #[derive(Serialize, Deserialize,Clone)]
@@ -68,16 +57,16 @@ pub struct BuildSimple {
 }
 
 impl BuildSimple {
-    pub fn new<'a>(position: Vec3, schematic: &'a Region, input: Position) -> Self {
+    pub fn new(position: Vec3, schematic: &Schematic, input: Position) -> Self {
         let size = Vec3::new(
-            (1 + schematic.max_x() - schematic.min_x()) as i32,
-            (1 + schematic.max_y() - schematic.min_y()) as i32,
-            (1 + schematic.max_z() - schematic.min_z()) as i32,
+            schematic.width() as i32,
+            schematic.height() as i32,
+            schematic.length() as i32,
         );
         Self {
             pos: position,
             size,
-            region: Some(SharedWorld::from_world(region2world(schematic))),
+            region: Some(SharedWorld::from_world(schematic2world(schematic).unwrap())),
             input,
             miners: Default::default(),
             progress: Default::default(),
