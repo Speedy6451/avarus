@@ -72,7 +72,7 @@ async fn main() -> Result<(), Error> {
         .with_target("server::googleforms", Level::TRACE)
         .with_target("server::fell", Level::WARN)
         .with_target("server::mine", Level::INFO)
-        .with_target("server::construct", Level::TRACE)
+        .with_target("server::construct", Level::INFO)
         .with_target("server::depot", Level::TRACE);
 
     let log = fs::OpenOptions::new().append(true).create(true).open(SAVE.get().unwrap().join("avarus.log")).await?;

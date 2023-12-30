@@ -83,7 +83,7 @@ struct GoogleOmniForm{
     y2: Option<String>,
     #[serde(rename(deserialize = "Z coordinate (to)"))]
     z2: Option<String>,
-    #[serde(rename(deserialize = "Upload a .litematic file"))]
+    #[serde(rename(deserialize = "Upload a .schematic file"))]
     schematic: Option<Vec<String>>,
 }
 
@@ -109,8 +109,9 @@ async fn omni_inner(state: SharedControl, req: GoogleOmniForm) -> anyhow::Result
             let schematic = req.schematic.context("no schematic uploaded")?.get(0).context("zero schematics")?.to_owned();
             let schematic = reqwest::get(format!("https://docs.google.com/uc?export=download&id={schematic}")).await?.bytes().await?;
 
+            // TODO: not this
             let input = Position::new(
-                Vec3::new(53,73,77),
+                Vec3::new(-22,91,42),
                 Direction::West,
             );
 

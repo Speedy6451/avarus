@@ -159,7 +159,7 @@ impl Task for BuildSimple {
 
         let layer = self.progress.load(Ordering::SeqCst);
 
-        if layer == self.height {
+        if layer > self.height {
             return TaskState::Complete;
         }
 
