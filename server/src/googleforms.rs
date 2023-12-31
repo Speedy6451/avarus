@@ -135,7 +135,19 @@ async fn omni_inner(state: SharedControl, req: GoogleOmniForm) -> anyhow::Result
                 req.z2.context("z2")?.parse()?,
             );
 
-            let quarry = Quarry::new(position, upper);
+            let min = Vec3::new(
+                upper.x.min(position.x),
+                upper.y.min(position.y),
+                upper.z.min(position.z),
+            );
+
+            let max = Vec3::new(
+                upper.x.max(position.x),
+                upper.y.max(position.y),
+                upper.z.max(position.z),
+            );
+
+            let quarry = Quarry::new(min, max);
             schedule.add_task(Box::new(quarry));
         },
         GoogleOmniFormMode::Goto => {
