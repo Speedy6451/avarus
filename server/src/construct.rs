@@ -73,6 +73,10 @@ impl BuildSimple {
     async fn place_block(&self, turtle: TurtleCommander, at: Vec3) -> Option<()> {
         let mut near = turtle.goto_adjacent(at).await?;
         while let TurtleCommandResponse::Failure = turtle.execute(near.place(at)?).await.ret {
+            if turtle.world().occupied(at).await {
+                trace!("{at} already filled");
+                return None;
+            };
             trace!("failed, looking for blocks");
             if let Some(slot) = turtle.inventory().await.iter().enumerate()
                 .filter(|n| n.1.clone().is_some_and(|s| s.count > 0))
